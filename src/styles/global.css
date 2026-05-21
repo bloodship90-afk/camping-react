@@ -104,13 +104,16 @@ body {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
-  overflow: hidden;
+  overflow: clip;
 }
 .grid-header {
   display: grid;
   grid-template-columns: 80px repeat(7, 1fr);
   background: var(--surface2);
   border-bottom: 2px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 .grid-header-cell {
   padding: 10px 4px;
