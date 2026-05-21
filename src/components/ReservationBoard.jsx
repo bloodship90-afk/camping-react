@@ -4,7 +4,7 @@ import { getWeekDates } from "../utils/dateUtils.js";
 import {
   filterActive,
   detectDuplicates,
-  calcOccupancy,
+  calcWeekStats,
 } from "../utils/reservationUtils.js";
 import WeekNavigator from "./WeekNavigator.jsx";
 import ReservationGrid from "./ReservationGrid.jsx";
@@ -30,24 +30,22 @@ export default function ReservationBoard({
     [reservations]
   );
 
-  // 통계 — 전체 사이트 기준 중복 개수 합산
+  // 통계 — 주간 겹침 예약 수 + 날짜별 예약 수 + 점유율 + 중복
   const stats = useMemo(() => {
-    let totalRes = 0;
     let dupPairs = 0;
     ALL_SITES.forEach((site) => {
       const siteRes = Object.entries(activeReservations).filter(
         ([, r]) => r.site === site
       );
-      totalRes += siteRes.length;
       const { dupPairs: dp } = detectDuplicates(siteRes);
       dupPairs += dp;
     });
-    const { occupancy } = calcOccupancy(
+    const { weekRes, dailyCounts, occupancy } = calcWeekStats(
       activeReservations,
       weekDays,
       ALL_SITES.length
     );
-    return { totalRes, dupPairs, occupancy };
+    return { weekRes, dailyCounts, occupancy, dupPairs };
   }, [activeReservations, weekDays]);
 
   const openAdd = (site, date) =>
@@ -123,11 +121,12 @@ export default function ReservationBoard({
       <ReservationGrid
         weekDays={weekDays}
         activeReservations={activeReservations}
+        dailyCounts={stats.dailyCounts}
         onSlotClick={openAdd}
         onBarClick={openEdit}
       />
       <StatsRow
-        totalRes={stats.totalRes}
+        weekRes={stats.weekRes}
         occupancy={stats.occupancy}
         dupPairs={stats.dupPairs}
       />

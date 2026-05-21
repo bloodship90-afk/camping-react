@@ -130,6 +130,14 @@ body {
   color: var(--text);
   margin-bottom: 1px;
 }
+.grid-header-cell .day-count {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 2px;
+  letter-spacing: 0.2px;
+}
 .grid-header-cell.weekend .day-num {
   color: #ff7b7b;
 }
@@ -564,11 +572,399 @@ body {
   .grid-header-cell .day-num {
     font-size: 12px;
   }
+  .grid-header-cell .day-count {
+    font-size: 9px;
+  }
   .modal {
     width: 92vw;
   }
   .tab-btn {
     padding: 8px 14px;
     font-size: 13px;
+  }
+}
+
+/* ─── 예약 리스트 탭 ─────────────────────────── */
+.rl-wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.rl-filter-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rl-filter-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.rl-filter-row--actions {
+  align-items: center;
+}
+
+.rl-input {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  min-width: 130px;
+  flex: 1;
+}
+.rl-input:focus {
+  border-color: var(--accent);
+}
+
+.rl-input--date {
+  min-width: 130px;
+  flex: 0 0 auto;
+}
+
+.rl-select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  min-width: 120px;
+}
+.rl-select:focus {
+  border-color: var(--accent);
+}
+.rl-select option {
+  background: var(--surface2);
+}
+
+.rl-select--sort {
+  min-width: 140px;
+}
+
+.rl-date-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rl-date-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rl-date-sep {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.rl-quick-btns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.rl-quick-btn {
+  background: var(--surface2);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: 0.15s;
+}
+.rl-quick-btn:hover {
+  background: var(--border);
+  color: var(--text);
+}
+.rl-quick-btn--all {
+  color: var(--accent);
+  border-color: rgba(0, 212, 170, 0.35);
+}
+.rl-quick-btn--all:hover {
+  background: rgba(0, 212, 170, 0.08);
+}
+
+.rl-sort-group {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rl-reset-btn {
+  background: transparent;
+  color: #ff6b6b;
+  border: 1px solid rgba(192, 57, 43, 0.4);
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: 0.15s;
+}
+.rl-reset-btn:hover {
+  background: rgba(192, 57, 43, 0.1);
+}
+
+/* 지난 예약 보기 토글 */
+.rl-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.rl-toggle-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+/* 방문 횟수 뱃지 */
+.rl-visit-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--text-muted);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+}
+.rl-visit-badge--repeat {
+  color: #f5a623;
+  background: rgba(245, 166, 35, 0.1);
+  border-color: rgba(245, 166, 35, 0.3);
+}
+
+.rl-cell-muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.rl-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.rl-count strong {
+  color: var(--text);
+  font-weight: 700;
+}
+.rl-count-filtered {
+  color: var(--accent) !important;
+}
+.rl-count-hint {
+  color: var(--accent);
+  font-style: italic;
+}
+
+/* 테이블 */
+.rl-table-wrap {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.rl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.rl-table thead tr {
+  background: var(--surface2);
+  border-bottom: 2px solid var(--border);
+}
+
+.rl-table th {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.rl-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.rl-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.rl-row:hover td {
+  background: rgba(0, 212, 170, 0.04);
+}
+
+.rl-row--cancelled td {
+  opacity: 0.42;
+}
+.rl-row--cancelled:hover td {
+  opacity: 0.62;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.rl-platform-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.rl-cell-site {
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.rl-cell-name {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.rl-cell-phone {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.rl-cell-date {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.rl-cell-nights {
+  text-align: center;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rl-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid;
+}
+
+.rl-status-badge--active {
+  background: rgba(0, 212, 170, 0.12);
+  color: var(--accent);
+  border-color: rgba(0, 212, 170, 0.3);
+}
+
+.rl-status-badge--cancelled {
+  background: rgba(192, 57, 43, 0.12);
+  color: #ff6b6b;
+  border-color: rgba(192, 57, 43, 0.3);
+}
+
+.rl-cancelled-at {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.rl-cell-id {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "Courier New", monospace;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rl-empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* 예약 리스트 모바일 */
+@media (max-width: 640px) {
+  .rl-filter-row {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .rl-filter-row .rl-input,
+  .rl-filter-row .rl-select {
+    width: 100%;
+    min-width: 0;
+    flex: none;
+  }
+  .rl-filter-row--dates {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .rl-date-group {
+    flex-wrap: wrap;
+  }
+  .rl-input--date {
+    min-width: 0;
+    flex: 1;
+  }
+  .rl-filter-row--actions {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .rl-sort-group {
+    margin-left: 0;
+    width: 100%;
+  }
+  .rl-sort-group .rl-select {
+    width: 100%;
+    min-width: 0;
+  }
+  .rl-table th,
+  .rl-table td {
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+  .rl-cell-id {
+    max-width: 80px;
   }
 }

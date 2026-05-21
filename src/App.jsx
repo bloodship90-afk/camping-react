@@ -3,6 +3,7 @@ import Layout from "./components/Layout.jsx";
 import TabNav from "./components/TabNav.jsx";
 import ReservationBoard from "./components/ReservationBoard.jsx";
 import KakaoParserPanel from "./components/KakaoParserPanel.jsx";
+import ReservationList from "./components/ReservationList.jsx";
 import { useReservations } from "./hooks/useReservations.js";
 import {
   isFirebaseConfigured,
@@ -91,6 +92,13 @@ export default function App() {
             cancelReservation={cancelReservation}
           />
         )}
+      </div>
+
+      <div
+        className={`tab-content ${tab === "list" ? "active" : ""}`}
+        id="tab-list"
+      >
+        <ReservationList reservations={reservations} loading={loading} />
       </div>
 
       <div

@@ -1,8 +1,8 @@
-export default function StatsRow({ totalRes, occupancy, dupPairs }) {
+export default function StatsRow({ weekRes, occupancy, dupPairs }) {
   return (
     <div className="stats-row">
       <div className="stat-chip">
-        총 예약 <span>{totalRes}</span>건
+        이번 주 예약 <span>{weekRes}</span>건
       </div>
       <div className="stat-chip">
         점유율 <span>{occupancy}%</span>

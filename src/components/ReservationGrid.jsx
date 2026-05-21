@@ -9,6 +9,7 @@ import {
 export default function ReservationGrid({
   weekDays,
   activeReservations,
+  dailyCounts = [],
   onSlotClick,
   onBarClick,
 }) {
@@ -22,13 +23,14 @@ export default function ReservationGrid({
         {weekDays.map((d, i) => {
           const isWeekend = i >= 5;
           const isToday = dateStr(d) === today;
+          const count = dailyCounts[i] ?? 0;
           return (
             <div
               key={i}
               className={`grid-header-cell${isWeekend ? " weekend" : ""}${isToday ? " today" : ""}`}
             >
-              <span className="day-num">{d.getDate()}</span>
-              {DAY_KO[i]}
+              <span className="day-num">{d.getDate()} {DAY_KO[i]}</span>
+              <span className="day-count">{count}/15</span>
             </div>
           );
         })}

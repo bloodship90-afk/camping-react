@@ -8,10 +8,16 @@ export default function TabNav({ tab, onChange }) {
         📅 예약 현황판
       </button>
       <button
+        className={`tab-btn ${tab === "list" ? "active" : ""}`}
+        onClick={() => onChange("list")}
+      >
+        📋 예약 리스트
+      </button>
+      <button
         className={`tab-btn ${tab === "parse" ? "active" : ""}`}
         onClick={() => onChange("parse")}
       >
-        📋 카톡 예약 입력
+        💬 카톡 예약 입력
       </button>
     </div>
   );

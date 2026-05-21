@@ -78,6 +78,41 @@ export function buildBarList(siteReservations, weekDays) {
   return { barList, rowAssign };
 }
 
+// 주간 통합 통계: 이번 주 예약 건수 + 날짜별 예약 수 + 점유율
+// dailyCounts[i]: weekDays[i] 날에 실제 숙박 중인 active 예약 수 (퇴실일 제외)
+// weekRes: 현재 주간과 1일이라도 겹치는 active 예약 수
+export function calcWeekStats(activeReservations, weekDays, totalSites) {
+  const weekStart = weekDays[0];
+  const weekEndExclusive = new Date(weekDays[6]);
+  weekEndExclusive.setDate(weekEndExclusive.getDate() + 1);
+
+  const dailyCounts = new Array(7).fill(0);
+  let weekRes = 0;
+
+  Object.values(activeReservations).forEach((r) => {
+    const checkin = toDate(r.checkin);
+    const checkout = new Date(checkin);
+    checkout.setDate(checkout.getDate() + Number(r.nights));
+
+    if (checkin < weekEndExclusive && checkout > weekStart) {
+      weekRes++;
+    }
+
+    for (let i = 0; i < 7; i++) {
+      const d = weekDays[i];
+      if (checkin <= d && d < checkout) {
+        dailyCounts[i]++;
+      }
+    }
+  });
+
+  const usedSlots = dailyCounts.reduce((a, b) => a + b, 0);
+  const totalSlots = totalSites * 7;
+  const occupancy = totalSlots > 0 ? Math.round((usedSlots / totalSlots) * 100) : 0;
+
+  return { weekRes, dailyCounts, occupancy, usedSlots, totalSlots };
+}
+
 // 주간 점유율 계산
 export function calcOccupancy(activeReservations, weekDays, totalSites) {
   const totalSlots = totalSites * 7;
