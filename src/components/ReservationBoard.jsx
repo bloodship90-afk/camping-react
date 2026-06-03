@@ -98,6 +98,16 @@ export default function ReservationBoard({
       const canvas = await html2canvas(target, {
         backgroundColor: "#16232f",
         scale: 2,
+        onclone: (clonedDoc) => {
+          const clonedHeader = clonedDoc.querySelector(
+            "#chartWrap .grid-header"
+          );
+          if (clonedHeader) {
+            clonedHeader.style.setProperty("position", "static", "important");
+            clonedHeader.style.setProperty("top", "auto", "important");
+            clonedHeader.style.setProperty("z-index", "auto", "important");
+          }
+        },
       });
       const a = document.createElement("a");
       a.href = canvas.toDataURL("image/png");
