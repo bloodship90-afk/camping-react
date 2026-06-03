@@ -93,14 +93,14 @@ export default function ReservationBoard({
     try {
       const mod = await import("html2canvas");
       const html2canvas = mod.default;
-      const target = document.getElementById("chartWrap");
+      const target = document.getElementById("captureArea");
       if (!target) return;
       const canvas = await html2canvas(target, {
         backgroundColor: "#16232f",
         scale: 2,
         onclone: (clonedDoc) => {
           const clonedHeader = clonedDoc.querySelector(
-            "#chartWrap .grid-header"
+            "#captureArea .grid-header"
           );
           if (clonedHeader) {
             clonedHeader.style.setProperty("position", "static", "important");
@@ -123,23 +123,25 @@ export default function ReservationBoard({
 
   return (
     <>
-      <WeekNavigator
-        weekDays={weekDays}
-        onPrev={() => setWeekOffset((o) => o - 1)}
-        onNext={() => setWeekOffset((o) => o + 1)}
-      />
-      <ReservationGrid
-        weekDays={weekDays}
-        activeReservations={activeReservations}
-        dailyCounts={stats.dailyCounts}
-        onSlotClick={openAdd}
-        onBarClick={openEdit}
-      />
-      <StatsRow
-        weekRes={stats.weekRes}
-        occupancy={stats.occupancy}
-        dupPairs={stats.dupPairs}
-      />
+      <div id="captureArea" className="capture-area">
+        <WeekNavigator
+          weekDays={weekDays}
+          onPrev={() => setWeekOffset((o) => o - 1)}
+          onNext={() => setWeekOffset((o) => o + 1)}
+        />
+        <ReservationGrid
+          weekDays={weekDays}
+          activeReservations={activeReservations}
+          dailyCounts={stats.dailyCounts}
+          onSlotClick={openAdd}
+          onBarClick={openEdit}
+        />
+        <StatsRow
+          weekRes={stats.weekRes}
+          occupancy={stats.occupancy}
+          dupPairs={stats.dupPairs}
+        />
+      </div>
       <button className="add-btn" onClick={() => openAdd()}>
         + 예약 추가
       </button>
