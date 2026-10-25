@@ -29,7 +29,7 @@ it("shows valid history despite malformed legacy entries and keeps history keybo
   summary.focus();
   fireEvent.keyDown(summary, { key: "Tab" });
   expect(document.activeElement).toBe(
-    screen.getByRole("button", { name: "닫기" }),
+    screen.getByRole("link", { name: "전화하기" }),
   );
   expect(summary.textContent).toContain("2건");
 });

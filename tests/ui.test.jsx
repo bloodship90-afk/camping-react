@@ -108,12 +108,19 @@ describe("details, family view and list", () => {
     expect(screen.getByRole("button", { name: "카톡 가져오기" })).toBeDefined();
     expect(screen.queryByRole("button", { name: "JSON 백업" })).toBeNull();
     expect(screen.queryByRole("button", { name: "CSV 내보내기" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "전화하기" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "문자 보내기" })).toBeNull();
     const legend = screen.getByRole("list", { name: "예약 플랫폼 색상 범례" });
     expect(within(legend).getAllByRole("listitem")).toHaveLength(3);
     const bar = screen.getByRole("button", { name: /홍길동 캠핏 A1/ });
     expect(bar.textContent).toBe("홍길동");
     fireEvent.click(bar);
     const dialog = screen.getByRole("dialog");
+    expect(
+      within(dialog)
+        .getByRole("link", { name: "전화하기" })
+        .getAttribute("href"),
+    ).toBe("tel:01012345678");
     expect(within(dialog).getByRole("button", { name: "수정" }).disabled).toBe(
       false,
     );
