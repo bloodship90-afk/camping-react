@@ -1,435 +1,349 @@
-import { useMemo, useRef, useState } from "react";
-import { push, ref, update } from "firebase/database";
-import { db } from "../firebase/firebaseClient.js";
-// 참고: 파싱(parseReservationMessages)은 DB 없이도 동작합니다. 저장 시에만 db 필요.
+import { useRef, useState } from "react";
 import { parseReservationMessages } from "../utils/kakaoParsers.js";
-import {
-  findCancelKeys,
-  isDuplicateReservation,
-} from "../utils/reservationUtils.js";
-
-// debounce
-function useDebouncedCallback(fn, ms) {
-  const t = useRef(null);
-  return (...args) => {
-    if (t.current) clearTimeout(t.current);
-    t.current = setTimeout(() => fn(...args), ms);
-  };
-}
-
-export default function KakaoParserPanel({ reservations }) {
-  const [text, setText] = useState("");
-  const [parseState, setParseState] = useState({
-    visible: false,
-    platform: null,
-    parsedItems: [],
-    pendingCancels: [],
-    skippedCount: 0,
-    unmatchedCancels: [],
-    totalFound: 0,
-    warnings: [],
-  });
-  const [saving, setSaving] = useState(false);
-  const [logMsg, setLogMsg] = useState("");
-  const [doneMsg, setDoneMsg] = useState("");
-
-  const doParse = (val) => {
-    const input = (val ?? text).trim();
-    if (!input) {
-      setParseState((s) => ({ ...s, visible: false }));
-      return;
-    }
-    const { platform, newItems, cancelList, warnings } =
-      parseReservationMessages(input);
-
-    if (!platform) {
-      setParseState({
-        visible: true,
-        platform: null,
-        parsedItems: [],
-        pendingCancels: [],
-        skippedCount: 0,
-        unmatchedCancels: [],
-        totalFound: 0,
-        warnings,
-      });
-      return;
-    }
-
-    const parsedItems = newItems.filter(
-      (r) => !isDuplicateReservation(reservations, r.reservationId)
+import { classifyImport, buildImportOperations } from "../utils/importPlan.js";
+import { fingerprint } from "../utils/reservationModel.js";
+import { findCancelKeys, conflictsFor } from "../utils/reservationUtils.js";
+import ReservationFields from "./ReservationFields.jsx";
+export default function KakaoParserPanel({
+  reservations,
+  rawReservations,
+  canWrite,
+  saving,
+  onCommit,
+}) {
+  const [text, setText] = useState(""),
+    [includePast, setIncludePast] = useState(false),
+    [analysis, setAnalysis] = useState(null);
+  const [rows, setRows] = useState([]),
+    [cancels, setCancels] = useState([]),
+    [allowOverlap, setAllowOverlap] = useState(false);
+  const [error, setError] = useState(""),
+    [message, setMessage] = useState("");
+  const mutex = useRef(false);
+  const stale = !!analysis && analysis.version !== fingerprint(rawReservations);
+  const invalidSelected =
+    rows.some(
+      (row) =>
+        row.selected &&
+        (classifyImport(rawReservations, row.item).errors.length ||
+          !["add", "update"].includes(
+            classifyImport(rawReservations, row.item).type,
+          )),
+    ) || cancels.some((c) => c.selected && !c.key);
+  const selectedCount =
+    rows.filter((r) => r.selected).length +
+    cancels.filter((c) => c.selected).length;
+  function invalidate() {
+    setAnalysis(null);
+    setRows([]);
+    setCancels([]);
+    setMessage("");
+    setError("");
+    setAllowOverlap(false);
+  }
+  function analyze() {
+    const parsed = parseReservationMessages(text, { includePast });
+    setAnalysis({ ...parsed, version: fingerprint(rawReservations) });
+    setMessage("");
+    setError("");
+    setAllowOverlap(false);
+    setRows(
+      parsed.newItems.map((item) => {
+        const c = classifyImport(rawReservations, item);
+        return { item, selected: c.type === "add" && !c.errors.length };
+      }),
     );
-    const skippedCount = newItems.length - parsedItems.length;
-
-    const pendingCancels = cancelList
-      .map((c) => {
-        const { keys, isFallback } = findCancelKeys(reservations, c);
-        return { ...c, keys, isFallback };
-      })
-      .filter((c) => c.keys.length > 0);
-
-    const unmatchedCancels = cancelList.filter(
-      (c) => !pendingCancels.some((p) => p.reservationId === c.reservationId)
+    setCancels(
+      parsed.cancelList.map((item) => {
+        const match = findCancelKeys(rawReservations, item);
+        const automatic = match.keys.length === 1 && !match.isFallback;
+        return {
+          item,
+          selected: automatic,
+          key: automatic ? match.keys[0] : "",
+          ...match,
+        };
+      }),
     );
-
-    setParseState({
-      visible: true,
-      platform,
-      parsedItems,
-      pendingCancels,
-      skippedCount,
-      unmatchedCancels,
-      totalFound: newItems.length + cancelList.length,
-      warnings,
-    });
-  };
-
-  const debouncedParse = useDebouncedCallback(doParse, 500);
-
-  const onChangeText = (e) => {
-    const v = e.target.value;
-    setText(v);
-    debouncedParse(v);
-  };
-
-  const confirmDisabled =
-    saving ||
-    (parseState.parsedItems.length === 0 &&
-      parseState.pendingCancels.length === 0);
-
-  const confirmLabel = useMemo(() => {
-    if (saving) return "저장 중...";
-    if (doneMsg) return doneMsg;
-    const parts = [];
-    if (parseState.parsedItems.length > 0)
-      parts.push(`신규 ${parseState.parsedItems.length}건 저장`);
-    if (parseState.pendingCancels.length > 0)
-      parts.push(`취소 ${parseState.pendingCancels.length}건 처리`);
-    return parts.length > 0 ? `📥 ${parts.join(" + ")}` : "처리할 내용 없음";
-  }, [saving, doneMsg, parseState]);
-
-  const doSave = async () => {
-    if (confirmDisabled) return;
-    if (!db) {
-      alert("Firebase 가 설정되지 않아 저장할 수 없습니다. .env.local 을 확인하세요.");
+  }
+  async function save() {
+    if (mutex.current || !analysis || stale || saving) return;
+    setError("");
+    if (!canWrite) {
+      setError("예약 정보를 불러오고 연결이 확인된 뒤 저장하세요.");
       return;
     }
-    setSaving(true);
-    setLogMsg("");
-    setDoneMsg("");
-    let savedOk = 0;
-    let cancelledOk = 0;
-
+    mutex.current = true;
     try {
-      for (const r of parseState.parsedItems) {
-        if (isDuplicateReservation(reservations, r.reservationId)) {
-          setLogMsg(`#${r.reservationId} 중복 스킵`);
-          continue;
-        }
-        await push(ref(db, "reservations"), r);
-        savedOk++;
-        setLogMsg(`저장 중... ${savedOk}건`);
-      }
-      for (const c of parseState.pendingCancels) {
-        for (const key of c.keys) {
-          await update(ref(db, `reservations/${key}`), {
-            status: "cancelled",
-            cancelledAt: Date.now(),
-          });
-          cancelledOk++;
-        }
-      }
-      const parts = [];
-      if (savedOk > 0) parts.push(`${savedOk}건 저장`);
-      if (cancelledOk > 0) parts.push(`${cancelledOk}건 취소`);
-      const done = `✅ ${parts.join(" + ")} 완료!`;
-      setDoneMsg(done);
-      setLogMsg(`완료! ${parts.join(", ")}되었습니다.`);
-      setParseState({
-        visible: false,
-        platform: null,
-        parsedItems: [],
-        pendingCancels: [],
-        skippedCount: 0,
-        unmatchedCancels: [],
-        totalFound: 0,
-        warnings: [],
-      });
-      setText("");
-      setTimeout(() => setDoneMsg(""), 3000);
+      const ops = buildImportOperations(
+        rawReservations,
+        rows,
+        cancels,
+        allowOverlap,
+      );
+      if (!ops.length) throw new Error("처리할 예약을 선택하세요.");
+      await onCommit(ops);
+      setAnalysis(null);
+      setRows([]);
+      setCancels([]);
+      setMessage(
+        `선택한 ${ops.length}건을 저장했습니다. 원문은 확인을 위해 남겨 두었습니다.`,
+      );
     } catch (e) {
-      console.error("[doSave] failed", e);
-      alert("저장 실패: " + e.message);
+      setError(e.message);
     } finally {
-      setSaving(false);
+      mutex.current = false;
     }
-  };
-
-  const badgeStyle = parseState.platform
-    ? {
-        background: "rgba(0,212,170,.15)",
-        color: "var(--accent)",
-        borderColor: "rgba(0,212,170,.3)",
-      }
-    : {
-        background: "rgba(192,57,43,.15)",
-        color: "#ff6b6b",
-        borderColor: "rgba(192,57,43,.3)",
-      };
-
+  }
   return (
     <div className="parse-wrap">
-      <h2>📋 카톡 예약 메시지 입력</h2>
+      <h2>카톡 예약 가져오기</h2>
       <p>
-        캠핏 또는 땡큐캠핑 카톡 메시지를 붙여넣으면 <strong>플랫폼을 자동 감지</strong>
-        하여 예약을 등록하거나 <strong style={{ color: "#ff9999" }}>취소 처리</strong>
-        합니다.
+        캠핏·땡큐캠핑 알림을 함께 붙여 넣고 분석하세요. 신규·변경·취소 내용을
+        확인한 뒤 선택한 항목만 저장합니다.
       </p>
-
-      <div
-        style={{
-          display: "flex",
-          gap: 10,
-          marginBottom: 10,
-          alignItems: "center",
-        }}
-      >
-        {parseState.visible && (
-          <span
-            className="detected-badge"
-            style={{ display: "inline-block", ...badgeStyle }}
-          >
-            {parseState.platform
-              ? `감지: ${parseState.platform}`
-              : "⚠️ 플랫폼 감지 실패"}
-          </span>
-        )}
-        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
-          카톡 내용 전체를 붙여넣어 주세요
-        </span>
-      </div>
-
+      <label htmlFor="kakao-input">예약 메시지 원문</label>
       <textarea
+        id="kakao-input"
         className="parse-textarea"
         value={text}
-        onChange={onChangeText}
-        placeholder="카카오톡 대화 내용을 여기에 붙여넣으세요..."
+        disabled={saving}
+        onChange={(e) => {
+          setText(e.target.value);
+          invalidate();
+        }}
+        placeholder="카카오톡 예약 알림을 붙여 넣으세요"
       />
-
-      <div style={{ marginTop: 10 }}>
-        <button className="parse-btn" onClick={() => doParse()}>
-          🔍 파싱하기
-        </button>
-      </div>
-
-      {parseState.visible && (
-        <div className="parse-result" style={{ display: "block" }}>
-          <h3>
-            파싱 결과 — 신규 <span>{parseState.parsedItems.length}</span>건
-          </h3>
-
-          <div>
-            {!parseState.platform && (
-              <div className="parse-warn-box">
-                ⚠️ 메시지 형식이 변경되었을 가능성이 있습니다.
-                <br />
-                캠핏 또는 땡큐캠핑 메시지인지 확인해주세요.
-              </div>
-            )}
-
-            {parseState.platform && parseState.totalFound === 0 && (
-              <div className="parse-warn-box">
-                ⚠️ 메시지 형식이 변경되었을 가능성이 있습니다.
-                <br />
-                신규 예약도 취소도 인식되지 않았습니다.
-              </div>
-            )}
-
-            {parseState.parsedItems.length > 0 ? (
-              <>
-                <div className="parse-section-label">
-                  📥 신규 예약 {parseState.parsedItems.length}건
-                </div>
-                {[...parseState.parsedItems]
-                  .sort((a, b) => a.checkin.localeCompare(b.checkin))
-                  .map((r, i) => {
-                    const warns = [];
-                    if (!r.reservationId)
-                      warns.push(
-                        <span key="rid" className="parse-warn-tag">
-                          ⚠️ 예약번호 없음
-                        </span>
-                      );
-                    if (!r.site)
-                      warns.push(
-                        <span key="site" className="parse-warn-tag">
-                          ⚠️ 사이트 인식 실패
-                        </span>
-                      );
-                    return (
-                      <div
-                        key={i}
-                        className={`parse-item${warns.length ? " parse-item-warn" : ""}`}
-                      >
-                        <span
-                          className={`parse-badge badge-${r.platform === "캠핏" ? "camfit" : "thanku"}`}
-                        >
-                          {r.platform}
-                        </span>
-                        <strong>{r.checkin}</strong>
-                        <span
-                          style={{
-                            color: "var(--accent)",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {r.site || "?"}
-                        </span>
-                        {r.name} · {r.phone} · {r.nights}박
-                        <span
-                          style={{
-                            color: "var(--text-muted)",
-                            fontSize: 11,
-                          }}
-                        >
-                          #{r.reservationId || "없음"}
-                        </span>
-                        {warns}
-                      </div>
-                    );
-                  })}
-              </>
-            ) : parseState.totalFound > 0 ? (
-              <div
-                style={{
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  marginBottom: 4,
-                }}
-              >
-                신규 예약 없음
-              </div>
-            ) : null}
-
-            {parseState.skippedCount > 0 && (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: "var(--text-muted)",
-                  marginTop: 6,
-                }}
-              >
-                ⚠️ 이미 등록된 예약 {parseState.skippedCount}건 스킵
-              </div>
-            )}
-
-            {(parseState.pendingCancels.length > 0 ||
-              parseState.unmatchedCancels.length > 0) && (
-              <>
-                <div
-                  className="parse-section-label"
-                  style={{
-                    color: "#ff7b7b",
-                    borderTop: "1px solid var(--border)",
-                    paddingTop: 12,
-                    marginTop: 14,
-                  }}
-                >
-                  🗑️ 취소 {parseState.pendingCancels.length}건 처리 예정
-                </div>
-
-                {parseState.pendingCancels.length === 0 ? (
-                  <div className="parse-warn-box">
-                    ⚠️ 취소 대상 없음 — 수동 확인 필요
-                    <br />
-                    현황판에 일치하는 예약이 없습니다.
-                  </div>
-                ) : (
-                  parseState.pendingCancels.map((c, i) => (
-                    <div
-                      key={i}
-                      className="parse-item"
-                      style={{
-                        borderLeft: "3px solid #c0392b",
-                        paddingLeft: 8,
-                      }}
-                    >
-                      <span
-                        className="parse-badge"
-                        style={{
-                          background: "#c0392b22",
-                          color: "#ff6b6b",
-                        }}
-                      >
-                        취소
-                      </span>
-                      <strong>{c.checkin}</strong>
-                      {c.name} · {c.phone}
-                      <span
-                        style={{
-                          color: "var(--text-muted)",
-                          fontSize: 11,
-                        }}
-                      >
-                        #{c.reservationId}
-                      </span>
-                      <span style={{ color: "#ff6b6b", fontSize: 11 }}>
-                        ({c.keys.length}건)
-                      </span>
-                      {c.isFallback && (
-                        <span
-                          className="parse-warn-tag"
-                          style={{
-                            background: "rgba(230,126,34,.15)",
-                            color: "#e67e22",
-                            borderColor: "rgba(230,126,34,.3)",
-                          }}
-                        >
-                          보조 매칭
-                        </span>
-                      )}
-                    </div>
-                  ))
+      <label className="check-label">
+        <input
+          type="checkbox"
+          checked={includePast}
+          disabled={saving}
+          onChange={(e) => {
+            setIncludePast(e.target.checked);
+            invalidate();
+          }}
+        />
+        30일 이전 입실 알림도 포함
+      </label>
+      <button
+        className="parse-btn"
+        disabled={saving || !text.trim()}
+        onClick={analyze}
+      >
+        메시지 분석
+      </button>
+      {!canWrite && !saving && (
+        <p className="notice">
+          연결 확인과 예약 정보 로딩이 끝나면 저장할 수 있습니다. 분석은 먼저 할
+          수 있습니다.
+        </p>
+      )}
+      {message && (
+        <p role="status" className="notice success">
+          {message}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="notice warning">
+          {error}
+        </p>
+      )}
+      {analysis && (
+        <div className="import-result">
+          <h3>분석 결과 · 알림 {analysis.stats.found}건</h3>
+          <p className="muted">
+            정상 인식 {analysis.stats.ready} · 확인 필요{" "}
+            {analysis.stats.invalid} · 날짜 제외 {analysis.stats.excluded} ·
+            충돌 {analysis.stats.conflicts} · 반복 알림{" "}
+            {analysis.stats.repeated}
+          </p>
+          {stale && (
+            <p role="alert" className="notice warning">
+              예약 데이터가 변경되었습니다. 메시지를 다시 분석해 최신 내용을
+              확인하세요.
+            </p>
+          )}
+          {analysis.warnings.map((w) => (
+            <p key={w} className="notice warning">
+              {w}
+            </p>
+          ))}
+          {rows.map((row, i) => {
+            const c = classifyImport(rawReservations, row.item),
+              blocked = ["blocked", "duplicate"].includes(c.type);
+            const conflicts = conflictsFor(reservations, row.item, c.key);
+            return (
+              <article className="import-card" key={i}>
+                <label className="check-label">
+                  <input
+                    type="checkbox"
+                    checked={row.selected}
+                    disabled={saving || blocked || stale}
+                    onChange={(e) =>
+                      setRows((all) =>
+                        all.map((r, j) =>
+                          j === i ? { ...r, selected: e.target.checked } : r,
+                        ),
+                      )
+                    }
+                  />
+                  <strong>
+                    {row.item.platform} #{row.item.reservationId || "번호 확인"}{" "}
+                    · {c.reason}
+                  </strong>
+                </label>
+                <p>
+                  {row.item.name || "이름 확인"} ·{" "}
+                  {row.item.site || "사이트 확인"} ·{" "}
+                  {row.item.checkin || "날짜 확인"} · {row.item.nights}박 ·{" "}
+                  {row.item.phone}
+                </p>
+                {c.type === "update" && (
+                  <p className="notice">
+                    기존: {c.old.name} · {c.old.site} · {c.old.checkin} ·{" "}
+                    {c.old.nights}박 · {c.old.phone}
+                  </p>
                 )}
-
-                {parseState.unmatchedCancels.map((c, i) => (
-                  <div key={`u${i}`} className="parse-item parse-item-warn">
-                    <span
-                      className="parse-badge"
-                      style={{
-                        background: "#c0392b22",
-                        color: "#ff6b6b",
-                      }}
-                    >
-                      취소
-                    </span>
-                    <strong>{c.checkin || "날짜 없음"}</strong>
-                    {c.name || "이름 없음"}
-                    <span
-                      style={{
-                        color: "var(--text-muted)",
-                        fontSize: 11,
-                      }}
-                    >
-                      #{c.reservationId}
-                    </span>
-                    <span className="parse-warn-tag">
-                      ⚠️ 취소 대상 없음 — 수동 확인 필요
-                    </span>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-
+                {c.errors.length > 0 && (
+                  <p className="notice warning">{c.errors.join(" ")}</p>
+                )}
+                {conflicts.length > 0 && (
+                  <p className="notice warning">
+                    겹치는 예약:{" "}
+                    {conflicts
+                      .map(([, r]) => r.name + " " + r.checkin)
+                      .join(", ")}
+                  </p>
+                )}
+                <details>
+                  <summary>인식한 내용 수정</summary>
+                  <ReservationFields
+                    value={row.item}
+                    disabled={saving || stale}
+                    lockIdentity={c.type === "update"}
+                    onChange={(item) => {
+                      const next = classifyImport(rawReservations, item);
+                      setRows((all) =>
+                        all.map((r, j) =>
+                          j === i
+                            ? {
+                                ...r,
+                                item,
+                                selected:
+                                  r.selected &&
+                                  ["add", "update"].includes(next.type),
+                              }
+                            : r,
+                        ),
+                      );
+                      setAllowOverlap(false);
+                    }}
+                  />
+                </details>
+              </article>
+            );
+          })}
+          {cancels.map((c, i) => (
+            <article className="import-card" key={"cancel-" + i}>
+              <label className="check-label">
+                <input
+                  type="checkbox"
+                  checked={c.selected}
+                  disabled={saving || stale || !c.key}
+                  onChange={(e) =>
+                    setCancels((all) =>
+                      all.map((r, j) =>
+                        j === i ? { ...r, selected: e.target.checked } : r,
+                      ),
+                    )
+                  }
+                />
+                <strong>
+                  취소 · {c.item.platform} #
+                  {c.item.reservationId || "번호 없음"}
+                </strong>
+              </label>
+              <p>
+                {c.item.name} · {c.item.checkin} · {c.item.phone}
+              </p>
+              {c.keys.length ? (
+                <label>
+                  취소할 예약 선택{" "}
+                  {c.isFallback && "· 보조 매칭, 직접 확인 필요"}
+                  <select
+                    aria-label={`취소 대상 ${c.item.reservationId}`}
+                    disabled={saving || stale}
+                    value={c.key}
+                    onChange={(e) =>
+                      setCancels((all) =>
+                        all.map((r, j) =>
+                          j === i
+                            ? {
+                                ...r,
+                                key: e.target.value,
+                                selected: !!e.target.value,
+                              }
+                            : r,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="">처리하지 않음 / 대상 선택</option>
+                    {c.keys.map((key) => (
+                      <option key={key} value={key}>
+                        {reservations[key]?.name} · {reservations[key]?.site} ·{" "}
+                        {reservations[key]?.checkin} · #
+                        {reservations[key]?.reservationId || "직접예약"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <p className="notice warning">
+                  활성 예약 중 취소 대상을 찾지 못했습니다. 취소 목록과 원문을
+                  확인하세요.
+                </p>
+              )}
+            </article>
+          ))}
+          <label className="check-label">
+            <input
+              type="checkbox"
+              checked={allowOverlap}
+              disabled={saving || stale}
+              onChange={(e) => setAllowOverlap(e.target.checked)}
+            />
+            겹치는 예약을 확인했으며 중복 예약도 함께 기록합니다
+          </label>
           <button
             className="parse-confirm-btn"
-            disabled={confirmDisabled}
-            onClick={doSave}
+            disabled={!canWrite || stale || invalidSelected || !selectedCount}
+            onClick={save}
           >
-            {confirmLabel}
+            {saving ? "서버 저장 확인 중…" : `선택한 ${selectedCount}건 저장`}
           </button>
-          <div className="parse-log">{logMsg}</div>
+          <details className="diagnostics">
+            <summary>인식 결과와 원문 전체 확인</summary>
+            {analysis.diagnostics.map((d) => (
+              <article key={d.id}>
+                <strong>
+                  {d.platform} ·{" "}
+                  {
+                    {
+                      ready: "정상 인식",
+                      invalid: "확인 필요",
+                      excluded: "날짜 제외",
+                      conflict: "내용 충돌",
+                      repeated: "반복 알림",
+                    }[d.status]
+                  }
+                </strong>
+                <p>{d.errors.join(" ")}</p>
+                <pre>{d.raw}</pre>
+              </article>
+            ))}
+          </details>
         </div>
       )}
     </div>

@@ -1,169 +1,164 @@
-import { toDate } from "./dateUtils.js";
-
-// ─────────────────────────────────────────────────────────────
-// Parser Interface
-// ─────────────────────────────────────────────────────────────
-// parseReservationMessages(text) => {
-//   platform: "캠핏" | "땡큐캠핑" | null,
-//   newItems: Reservation[],
-//   cancelList: CancelItem[],
-//   warnings: string[]
-// }
-//
-// 향후 확장 (TODO):
-// - Gemini/Claude API 기반 자유형 카톡 메시지 파서 (parseWithAI)
-// - 사람이 확인 후 저장하는 반자동 승인 플로우
-// - 파싱 로그 저장
-// - 예약 변경/취소 이력 관리
-// ─────────────────────────────────────────────────────────────
-
-export function fmtPhone(p) {
-  p = (p || "").replace(/\D/g, "");
-  if (p.length === 11) return `${p.slice(0, 3)}-${p.slice(3, 7)}-${p.slice(7)}`;
-  if (p.length === 10) return `${p.slice(0, 3)}-${p.slice(3, 6)}-${p.slice(6)}`;
-  return p;
+import { addDays, dateStr, toDate } from "./dateUtils.js";
+import { fields, fmtPhone, validateReservation } from "./reservationModel.js";
+export { fmtPhone };
+const marker =
+  /(?:\[\s*땡큐캠핑\s*\]\s*예약\s*(?:확정|신청|취소|변경)\s*안내|신규\s*예약이\s*성사되었습니다[.。]?|예약\s*(?:취소|변경)\s*알림)/g;
+const field = (block, label) =>
+  block
+    .match(
+      new RegExp(
+        "(?:^|\\n)\\s*[-•]?\\s*(?:" + label + ")\\s*[:：]\\s*([^\\n]+)",
+      ),
+    )?.[1]
+    ?.trim() || "";
+const dateValue = (value) => {
+  const m = value.match(/(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/);
+  return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : "";
+};
+const siteValue = (value) => {
+  const m = value
+    .toUpperCase()
+    .match(/(?:^|[^A-Z])([A-C])\s*[-\/]?\s*0?(\d+)(?!\d)/);
+  return m ? m[1] + Number(m[2]) : "";
+};
+export function detectPlatform(text = "") {
+  const thanku = /\[\s*땡큐캠핑\s*\]/.test(text),
+    camfit = /신규\s*예약이\s*성사|예약\s*(취소|변경)\s*알림/.test(text);
+  return thanku && camfit
+    ? "혼합"
+    : thanku
+      ? "땡큐캠핑"
+      : camfit
+        ? "캠핏"
+        : null;
 }
-
-function mapSiteCamfit(zone) {
-  const z = zone.replace(/[\u{1F300}-\u{1FFFF}]/gu, "").toUpperCase().trim();
-  const m = z.match(/NO\s*KIDS\s*-\s*([A-C])\s*(?:[\/])?\s*-?\s*0?(\d+)/i);
-  if (m) return m[1].toUpperCase() + m[2];
-  return null;
-}
-
-export function detectPlatform(text) {
-  if (text.includes("[땡큐캠핑]")) return "땡큐캠핑";
-  if (
-    text.includes("신규 예약이 성사되었습니다") ||
-    text.includes("예약취소 알림")
-  )
-    return "캠핏";
-  return null;
-}
-
-function getCutoff() {
-  const c = new Date();
-  c.setDate(c.getDate() - 30);
-  return c;
-}
-
-function parseCamfit(text) {
-  const newItems = {};
-  const cancelList = [];
-  const cutoff = getCutoff();
-
-  const re =
-    /신규 예약이 성사되었습니다[.。]?\s*\n+예약번호 : (\S+)\s*\n캠핑존 : (.+?)\s*\n입실일자 : (\d{4})\/(\d+)\/(\d+)[^\n]*\((\d+)박\)\s*\n고객정보 : (.+?) \/ (\d+)/g;
-  for (const m of text.matchAll(re)) {
-    const [, num, zone, y, mo, d, nights, name, phone] = m;
-    const checkin = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
-    if (toDate(checkin) < cutoff) continue;
-    newItems[num] = {
-      reservationId: num,
-      name: name.trim(),
-      site: mapSiteCamfit(zone),
-      checkin,
-      nights: parseInt(nights),
-      phone: fmtPhone(phone),
-      platform: "캠핏",
+export function parseReservationMessages(
+  input,
+  { includePast = false, today = dateStr(new Date()) } = {},
+) {
+  const text = String(input || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u00a0/g, " ");
+  const starts = [...text.matchAll(marker)];
+  const diagnostics = [],
+    newMap = new Map(),
+    cancelMap = new Map(),
+    conflictKeys = new Set(),
+    warnings = [];
+  const cutoff = dateStr(addDays(today, -30));
+  for (let i = 0; i < starts.length; i++) {
+    const raw = text
+      .slice(starts[i].index, starts[i + 1]?.index ?? text.length)
+      .trim();
+    const platform = raw.startsWith("[") ? "땡큐캠핑" : "캠핏";
+    const cancel = /예약\s*취소/.test(starts[i][0]);
+    const customer = field(raw, "고객정보").match(
+      /^(.*?)\s*\/\s*([+\d][\d()\s-]*)$/,
+    );
+    const dateLine = field(raw, "입실일자|예약일자");
+    const siteLine = field(raw, "캠핑존|사이트명");
+    const r = fields({
+      reservationId: field(raw, "예약번호").split(/\s/)[0],
+      name: platform === "캠핏" ? customer?.[1] : field(raw, "예약자명"),
+      phone: platform === "캠핏" ? customer?.[2] : field(raw, "전화번호"),
+      site: siteValue(siteLine),
+      checkin: dateValue(dateLine),
+      nights: Number((dateLine + " " + siteLine).match(/(\d+)\s*박/)?.[1] || 0),
+      platform,
       status: "active",
-    };
-  }
-
-  const cancelRe =
-    /예약취소 알림[\s\S]*?예약번호 : (\S+)\s*\n캠핑존 : (.+?)\s*\n예약일자 : (\d{4})\/(\d+)\/(\d+)[^\n]*\n고객정보 : (.+?) \/ (\d+)/g;
-  for (const m of text.matchAll(cancelRe)) {
-    const [, num, , y, mo, d, name, phone] = m;
-    const checkin = `${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
-    cancelList.push({
-      reservationId: num,
-      name: name.trim(),
-      phone: fmtPhone(phone),
-      checkin,
     });
-    delete newItems[num];
-  }
-
-  const simpleRe = /예약취소 알림[\s\S]*?예약번호 : (\S+)/g;
-  for (const m of text.matchAll(simpleRe)) {
-    const num = m[1];
-    if (newItems[num]) {
-      const r = newItems[num];
-      cancelList.push({
-        reservationId: num,
-        name: r.name,
-        phone: r.phone,
-        checkin: r.checkin,
-      });
-      delete newItems[num];
-    } else if (!cancelList.some((c) => c.reservationId === num)) {
-      cancelList.push({ reservationId: num, name: "", phone: "", checkin: "" });
-    }
-  }
-
-  return { newItems: Object.values(newItems), cancelList };
-}
-
-function parseThanku(text) {
-  const newItems = {};
-  const cancelList = [];
-  const cutoff = getCutoff();
-
-  const blocks = text.split(/(?=\[땡큐캠핑\] 예약)/);
-  for (const block of blocks) {
-    const isCancel = block.includes("예약 취소 안내");
-    const isConfirm =
-      block.includes("예약 확정 안내") || block.includes("예약 신청 안내");
-    if (!isCancel && !isConfirm) continue;
-
-    const dateM = block.match(/- 예약일자 : (\d{4}-\d{2}-\d{2})/);
-    const siteM = block.match(/- 사이트명 : .+?\(([A-C]\d)\/(\d+)박\)/);
-    const numM = block.match(/- 예약번호 : (\d+)/);
-    const nameM = block.match(/- 예약자명 : (.+)/);
-    const phoneM = block.match(/- 전화번호 : ([\d\-]+)/);
-
-    if (!dateM || !numM) continue;
-    const checkin = dateM[1];
-    const num = numM[1];
-    if (toDate(checkin) < cutoff) continue;
-
-    const name = nameM ? nameM[1].trim() : "";
-    const phone = phoneM ? phoneM[1].trim() : "";
-
-    if (isCancel) {
-      cancelList.push({ reservationId: num, name, phone, checkin });
+    const errors = cancel
+      ? !r.reservationId && !(r.name && r.phone && dateStr(toDate(r.checkin)))
+        ? ["예약번호 또는 이름·전화번호·입실일이 필요합니다."]
+        : []
+      : [
+          ...(!r.reservationId ? ["예약번호를 확인하세요."] : []),
+          ...validateReservation(r),
+        ];
+    const diagnostic = {
+      id: i,
+      raw,
+      platform,
+      type: cancel ? "cancel" : "reservation",
+      status: errors.length ? "invalid" : "ready",
+      errors,
+    };
+    diagnostics.push(diagnostic);
+    if (
+      !cancel &&
+      !includePast &&
+      r.checkin &&
+      dateStr(toDate(r.checkin)) &&
+      r.checkin < cutoff
+    ) {
+      diagnostic.status = "excluded";
+      diagnostic.errors = [
+        "30일 이전 입실: 과거 알림 포함을 켜면 확인할 수 있습니다.",
+      ];
       continue;
     }
-    if (!siteM || !nameM || !phoneM) continue;
-    newItems[num] = {
-      reservationId: num,
-      name,
-      site: siteM[1],
-      checkin,
-      nights: parseInt(siteM[2]),
-      phone,
-      platform: "땡큐캠핑",
-      status: "active",
-    };
+    const key = platform + "|" + (r.reservationId || "missing-" + i);
+    r._source = i;
+    if (cancel) {
+      if (errors.length) continue;
+      if (cancelMap.has(key)) diagnostic.status = "repeated";
+      else cancelMap.set(key, r);
+    } else if (newMap.has(key)) {
+      const previous = newMap.get(key);
+      const same =
+        JSON.stringify(fields(previous)) === JSON.stringify(fields(r));
+      diagnostic.status = same ? "repeated" : "conflict";
+      if (!same) {
+        conflictKeys.add(key);
+        diagnostic.errors = [
+          "같은 번호에 서로 다른 신규·변경 내용이 있습니다.",
+        ];
+      }
+    } else newMap.set(key, r);
+    if (/예약\s*신청/.test(starts[i][0]))
+      warnings.push(
+        "예약 신청 알림이 있습니다. 확정 여부를 확인한 뒤 선택해 주세요.",
+      );
   }
-
-  return { newItems: Object.values(newItems), cancelList };
+  for (const key of newMap.keys())
+    if (cancelMap.has(key)) {
+      conflictKeys.add(key);
+      warnings.push(
+        `#${newMap.get(key).reservationId}: 신규·취소가 함께 있어 신규 저장을 제외했습니다. 취소 대상을 확인하세요.`,
+      );
+    }
+  for (const key of conflictKeys) {
+    const r = newMap.get(key);
+    if (r) {
+      diagnostics[r._source].status = "conflict";
+      diagnostics[r._source].errors.push(
+        "동일 번호의 알림이 충돌합니다. 원문을 확인해 별도로 처리하세요.",
+      );
+    }
+    newMap.delete(key);
+  }
+  if (text.trim() && !starts.length)
+    warnings.push(
+      "예약 알림을 찾지 못했습니다. 인식하지 못한 원문을 확인하세요.",
+    );
+  if (diagnostics.some((d) => d.status === "invalid"))
+    warnings.push(
+      "인식하지 못한 항목이 있습니다. 내용을 수정한 뒤 저장하세요.",
+    );
+  const stats = {
+    found: starts.length,
+    ready: diagnostics.filter((d) => d.status === "ready").length,
+    invalid: diagnostics.filter((d) => d.status === "invalid").length,
+    excluded: diagnostics.filter((d) => d.status === "excluded").length,
+    conflicts: diagnostics.filter((d) => d.status === "conflict").length,
+    repeated: diagnostics.filter((d) => d.status === "repeated").length,
+  };
+  return {
+    platform: detectPlatform(text),
+    newItems: [...newMap.values()],
+    cancelList: [...cancelMap.values()],
+    warnings: [...new Set(warnings)],
+    diagnostics,
+    stats,
+  };
 }
-
-// 통합 진입점 — 향후 AI 파서로 교체/확장 가능
-export function parseReservationMessages(text) {
-  const warnings = [];
-  if (!text || !text.trim()) {
-    return { platform: null, newItems: [], cancelList: [], warnings };
-  }
-  const platform = detectPlatform(text);
-  if (!platform) {
-    warnings.push("플랫폼 감지 실패 — 메시지 형식 변경 가능성");
-    return { platform: null, newItems: [], cancelList: [], warnings };
-  }
-  const result = platform === "캠핏" ? parseCamfit(text) : parseThanku(text);
-  return { platform, ...result, warnings };
-}
-
-// TODO(AI): 추후 Gemini/Claude API 호출 기반의 파서 추가
-// export async function parseWithAI(text) { ... }
