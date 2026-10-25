@@ -87,11 +87,11 @@ describe("import review screen", () => {
   });
 });
 describe("details, family view and list", () => {
-  it("opens in view mode and exposes editing only after the mode switch", () => {
+  it("shows names and three platform colors without requiring an editing mode", () => {
     render(
       <CampingApp
         store={{
-          reservations: { a: r() },
+          reservations: { a: r({ checkin: "2026-10-25" }) },
           isDemo: true,
           loaded: true,
           loading: false,
@@ -102,13 +102,46 @@ describe("details, family view and list", () => {
         }}
       />,
     );
-    expect(screen.queryByRole("button", { name: "+ 예약 추가" })).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: /보기 모드 · 편집하기/ }),
-    );
-    expect(screen.getByRole("button", { name: "+ 예약 추가" }).disabled).toBe(
+    expect(
+      screen.queryByRole("button", { name: /보기 모드|편집하기/ }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "카톡 가져오기" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "JSON 백업" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "CSV 내보내기" })).toBeNull();
+    const legend = screen.getByRole("list", { name: "예약 플랫폼 색상 범례" });
+    expect(within(legend).getAllByRole("listitem")).toHaveLength(3);
+    const bar = screen.getByRole("button", { name: /홍길동 캠핏 A1/ });
+    expect(bar.textContent).toBe("홍길동");
+    fireEvent.click(bar);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "수정" }).disabled).toBe(
       false,
     );
+  });
+  it("keeps management actions in the collapsed menu while empty slots remain usable", () => {
+    render(
+      <CampingApp
+        store={{
+          reservations: {},
+          isDemo: true,
+          loaded: true,
+          loading: false,
+          connected: true,
+          canWrite: true,
+          saving: false,
+          commit: vi.fn(),
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("관리 메뉴"));
+    expect(screen.getByRole("button", { name: "JSON 백업" })).toBeDefined();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "JSON 백업" })).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "A1 2026-10-25 예약 추가" }),
+    );
+    expect(screen.getByRole("dialog")).toBeDefined();
+    expect(screen.getByRole("button", { name: "저장" }).disabled).toBe(false);
   });
   it("shows malformed items in the repair list and details safely", () => {
     const records = inspectReservations({

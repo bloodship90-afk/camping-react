@@ -1099,11 +1099,11 @@ summary {
   color: var(--text-muted);
 }
 .chart-scroll {
-  overflow-x: auto;
-  margin-top: 16px;
+  margin-top: 0;
 }
 .chart-scroll .chart-wrap {
-  min-width: 900px;
+  min-width: 0;
+  width: 100%;
 }
 .chart-wrap .day-slot {
   border-radius: 0;

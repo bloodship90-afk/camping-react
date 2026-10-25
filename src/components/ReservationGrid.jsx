@@ -54,7 +54,7 @@ export default function ReservationGrid({
                 <div className="site-label">{site}</div>
                 <div
                   className="days-area"
-                  style={{ minHeight: Math.max(44, (maxRow + 1) * 36 + 4) }}
+                  style={{ "--reservation-rows": maxRow + 1 }}
                 >
                   {weekDays.map((d, i) => (
                     <button
@@ -71,23 +71,18 @@ export default function ReservationGrid({
                       <button
                         key={key}
                         type="button"
-                        className="res-bar"
+                        className={`res-bar${dups.has(key) ? " is-conflict" : ""}`}
                         style={{
-                          left: `calc(${startIdx}/7*100% + 3px)`,
-                          width: `calc(${span}/7*100% - 6px)`,
-                          top: 4 + (rowAssign[key] || 0) * 36,
-                          height: 32,
-                          background: dups.has(key)
-                            ? "#b62e30"
-                            : PLATFORM_COLOR[r.platform] || "#526677",
-                          borderRadius: `${checkin >= weekDays[0] ? 7 : 0}px ${checkout <= addDays(weekDays[6], 1) ? 7 : 0}px`,
+                          left: `calc(${startIdx}/7*100% + var(--bar-inset))`,
+                          width: `calc(${span}/7*100% - 2 * var(--bar-inset))`,
+                          top: `calc(var(--bar-inset) + ${rowAssign[key] || 0} * var(--reservation-row-height))`,
+                          background: PLATFORM_COLOR[r.platform] || "#526677",
+                          borderRadius: `${checkin >= weekDays[0] ? 5 : 0}px ${checkout <= addDays(weekDays[6], 1) ? 5 : 0}px ${checkout <= addDays(weekDays[6], 1) ? 5 : 0}px ${checkin >= weekDays[0] ? 5 : 0}px`,
                         }}
                         onClick={() => onBarClick(key)}
-                        title={`${r.name} · ${r.checkin} · ${r.nights}박`}
-                        aria-label={`${dups.has(key) ? "중복 예약 " : ""}${r.name} ${site} ${r.checkin} ${r.nights}박 상세`}
+                        title={`${dups.has(key) ? "중복 예약 · " : ""}${r.name} · ${r.platform || "미지정"} · ${r.checkin} · ${r.nights}박`}
+                        aria-label={`${dups.has(key) ? "중복 예약 " : ""}${r.name} ${r.platform || "미지정"} ${site} ${r.checkin} ${r.nights}박 상세`}
                       >
-                        {dups.has(key) ? "⚠ " : ""}
-                        {(r.platform || "미지정").replace("캠핑", "")}-
                         {r.name || "이름 없음"}
                       </button>
                     ),

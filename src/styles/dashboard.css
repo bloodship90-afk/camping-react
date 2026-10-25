@@ -1,0 +1,345 @@
+/* Keep the whole week visible; management controls stay inside the header menu. */
+:root {
+  --site-column: 64px;
+  --reservation-row-height: 38px;
+  --bar-inset: 2px;
+  --board-heading-height: 64px;
+}
+body {
+  padding: 14px 16px;
+}
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+  text-align: left;
+}
+.page-header h1 {
+  font-size: 19px;
+  min-width: 0;
+}
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.connection-dot {
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ce8651;
+}
+.connection-dot.online {
+  background: var(--accent);
+}
+.utility-menu {
+  position: relative;
+}
+.utility-menu > .utility-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  list-style: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font-size: 22px;
+  line-height: 1;
+}
+.utility-menu > .utility-toggle::-webkit-details-marker {
+  display: none;
+}
+.utility-popover {
+  position: absolute;
+  right: 0;
+  top: 38px;
+  z-index: 60;
+  width: min(250px, calc(100vw - 24px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 10px 32px #0008;
+}
+.utility-popover button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-top: 6px;
+  font-size: 13px;
+  min-height: 36px;
+}
+.utility-popover label {
+  display: block;
+  padding-bottom: 6px;
+}
+.demo-note {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+  margin: 4px 0;
+}
+.tab-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin: 0 0 6px;
+}
+.tab-nav .tab-btn {
+  min-width: 0;
+  padding: 7px 4px;
+  font-size: 13px;
+  border-radius: 7px;
+  white-space: nowrap;
+}
+.capture-area {
+  padding: 0 0 6px;
+  min-width: 0;
+  width: 100%;
+}
+.chart-sticky-heading {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  background: var(--bg);
+  height: var(--board-heading-height);
+}
+.compact-week-nav {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  align-items: center;
+  height: 36px;
+  gap: 5px;
+}
+.compact-week-nav > button {
+  padding: 0;
+  height: 30px;
+  font-size: 22px;
+  line-height: 1;
+}
+.week-label {
+  min-width: 0;
+  font-size: 14px;
+}
+.week-current {
+  font-size: inherit;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  white-space: nowrap;
+  font-weight: 700;
+}
+.platform-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  height: 28px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.platform-legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.legend-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.chart-wrap {
+  border-radius: 9px;
+}
+.grid-header {
+  grid-template-columns: var(--site-column) repeat(7, minmax(0, 1fr));
+  top: var(--board-heading-height);
+}
+.site-row {
+  grid-template-columns: var(--site-column) minmax(0, 1fr);
+}
+.days-area {
+  min-width: 0;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  height: calc(
+    var(--reservation-rows) * var(--reservation-row-height) + 2 *
+      var(--bar-inset)
+  );
+}
+.chart-wrap .res-bar {
+  display: block;
+  min-width: 0;
+  padding: 0 3px;
+  height: calc(var(--reservation-row-height) - 2 * var(--bar-inset));
+  line-height: calc(var(--reservation-row-height) - 2 * var(--bar-inset));
+  font-size: 12px;
+  text-align: center;
+  text-overflow: ellipsis;
+  border: 0;
+  box-shadow: none;
+}
+.chart-wrap .res-bar.is-conflict {
+  box-shadow: inset 0 0 0 2px #ff5757;
+}
+.site-header-cell,
+.grid-header-cell {
+  min-width: 0;
+  padding: 6px 1px;
+}
+.grid-header-cell .day-num {
+  font-size: 13px;
+}
+.grid-header-cell .day-count {
+  font-size: 10px;
+}
+.stats-row {
+  margin-top: 7px;
+  gap: 6px;
+}
+.stat-chip {
+  font-size: 11px;
+  padding: 3px 9px;
+}
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 100;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  padding: 10px 15px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface2);
+  color: var(--text);
+  box-shadow: 0 4px 22px #0005;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.app-toast.warning {
+  border-color: #a06330;
+  color: #ffd2a7;
+}
+@media (max-width: 640px) {
+  :root {
+    --site-column: 32px;
+    --reservation-row-height: 32px;
+    --bar-inset: 1px;
+  }
+  body {
+    padding: 6px;
+  }
+  .page-header {
+    margin-bottom: 5px;
+  }
+  .page-header h1 {
+    font-size: 16px;
+    letter-spacing: -0.5px;
+  }
+  .header-tools {
+    gap: 8px;
+  }
+  .utility-menu > .utility-toggle {
+    height: 28px;
+    width: 28px;
+  }
+  .tab-nav .tab-btn {
+    font-size: 12px;
+    padding: 6px 2px;
+  }
+  .week-label {
+    font-size: 12px;
+  }
+  .platform-legend {
+    gap: 14px;
+  }
+  .platform-legend li {
+    font-size: 11px;
+    gap: 4px;
+  }
+  .chart-wrap .res-bar {
+    font-size: 11px;
+    padding: 0 1px;
+    letter-spacing: -0.35px;
+  }
+  .grid-header-cell .day-num {
+    font-size: 11px;
+    letter-spacing: -0.4px;
+  }
+  .grid-header-cell .day-count {
+    font-size: 8px;
+    letter-spacing: 0;
+  }
+  .site-label,
+  .site-header-cell {
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  :root {
+    --site-column: 38px;
+    --reservation-row-height: 27px;
+    --bar-inset: 1px;
+    --board-heading-height: 54px;
+  }
+  body {
+    padding: 4px 8px;
+  }
+  .page-header {
+    margin-bottom: 3px;
+  }
+  .page-header h1 {
+    font-size: 15px;
+  }
+  .utility-menu > .utility-toggle {
+    width: 26px;
+    height: 26px;
+  }
+  .tab-nav {
+    margin-bottom: 3px;
+  }
+  .tab-nav .tab-btn {
+    padding: 4px;
+    font-size: 11px;
+  }
+  .compact-week-nav {
+    height: 30px;
+  }
+  .compact-week-nav > button {
+    height: 26px;
+  }
+  .platform-legend {
+    height: 24px;
+  }
+  .platform-legend li {
+    font-size: 10px;
+  }
+  .grid-header-cell,
+  .site-header-cell {
+    padding: 3px 1px;
+  }
+  .grid-header-cell .day-num {
+    font-size: 11px;
+  }
+  .grid-header-cell .day-count {
+    font-size: 8px;
+    margin-top: 0;
+  }
+  .chart-wrap .res-bar {
+    font-size: 11px;
+  }
+}
