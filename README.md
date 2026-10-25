@@ -1,167 +1,110 @@
-# 🏕️ 캠핑장 예약 현황판 (React + Vite)
+# 캠핑장 예약 현황판
 
-포레스트소울 캠핑장 운영 자동화의 기반 앱.
-기존 단일 HTML 버전을 React + Vite 구조로 재구축한 것이며,
-**Firebase Realtime Database 의 `reservations` 경로 데이터는 그대로 사용**합니다.
+포레스트소울 캠핑장 운영자와 가족을 위한 React + Firebase Realtime Database 앱입니다.
+A1~A4, B1~B4, C1~C7의 주간 예약과 목록을 확인하고 캠핏·땡큐캠핑 알림을 가져옵니다.
 
----
+## 시작하기
 
-## 핵심 원칙
+Node.js **24.15 이상 24.x**를 사용하세요. `.nvmrc`와 CI는 24.15.0으로 고정되어 있습니다.
 
-- **데이터 무결성**: 기존 RTDB 데이터는 절대 마이그레이션·초기화·덮어쓰기 하지 않습니다.
-- **호환성**: 기존 데이터 구조(`reservationId`, `name`, `site`, `checkin`, `nights`, `phone`, `platform`, `status`, `cancelledAt`)를 그대로 읽고 씁니다.
-- **확장성 우선**: 이번 작업은 기능 확장이 아닌 *확장 가능한 틀* 만들기입니다.
-
----
-
-## 설치 & 실행
-
-```bash
-npm install
-npm run dev      # 개발 서버 (http://localhost:5173)
-npm run build    # 프로덕션 빌드 (dist/)
-npm run preview  # 빌드 산출물 미리보기
+```sh
+npm ci
+npm run dev
+npm test
+npm run build
 ```
 
----
+개발 서버는 http://127.0.0.1:5173 에서 열립니다. 배포 파일은 `dist/`에 만들어집니다.
+`npm run preview`로 빌드 결과를 확인할 수 있습니다.
 
-## 환경 변수 (.env.local)
+### Firebase 연결
 
-Firebase Web Config 는 비밀값은 아니지만, 환경 분리/배포 편의를 위해 Vite 환경변수로 관리합니다.
-**보안의 핵심은 Firebase Realtime Database Rules 와 (추후) Firebase Auth** 입니다.
+`.env.example`을 `.env.local`로 복사하고 기존 Firebase 웹 앱 설정을 넣습니다.
+필수 값은 `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_DATABASE_URL`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`입니다.
+Database URL은 기존 Realtime Database의 HTTPS 주소를 사용합니다.
 
-1. `.env.example` 을 복사해서 `.env.local` 을 만듭니다.
-2. Firebase 콘솔 → 프로젝트 설정 → 일반 → 웹 앱 → "SDK 설정 및 구성" 에서 값을 가져와 채웁니다.
+설정 변경 후 개발 서버를 다시 시작하세요. 배포 환경에서는 빌드 전에 환경 변수를 설정해야 합니다.
+설정 누락·초기화 오류·연결 끊김·로딩 중에는 화면에 상태를 표시하고 저장을 막습니다.
+
+로그인과 권한 관리 기능은 넣지 않았습니다. **보기/편집 모드는 실수를 줄이는 화면 기능**이며 누구나 전환할 수 있습니다.
+기존 Firebase Rules는 이 저장소에서 변경하지 않습니다.
+
+### 운영 데이터 없이 체험하기
+
+`.env.local`에 아래 한 줄을 넣고 개발 서버를 시작하세요.
 
 ```env
-VITE_FIREBASE_API_KEY=
-VITE_FIREBASE_AUTH_DOMAIN=
-VITE_FIREBASE_DATABASE_URL=
-VITE_FIREBASE_PROJECT_ID=
-VITE_FIREBASE_STORAGE_BUCKET=
-VITE_FIREBASE_MESSAGING_SENDER_ID=
-VITE_FIREBASE_APP_ID=
+VITE_DEMO_MODE=true
 ```
 
-> `.env.local` 은 `.gitignore` 에 포함되어 있어 커밋되지 않습니다.
+예시 예약만 메모리에서 편집하며 새로고침하면 초기화됩니다. 데모 모드는 개발 서버에서만 작동하고 배포 빌드에서는 무시됩니다.
+Firebase 설정을 넣지 않아도 됩니다. 실제 연결을 테스트할 때는 이 값을 제거하세요.
 
----
+별도로 준비한 Firebase Database Emulator를 사용할 경우 개발 환경에서
+`VITE_USE_FIREBASE_EMULATOR=true`를 설정하면 `127.0.0.1:9000`에 연결합니다.
+이 설정도 배포 빌드에서는 무시됩니다. 에뮬레이터 시작/Rules 설정은 이 저장소가 자동으로 수행하지 않습니다.
 
-## 기존 RTDB 데이터 유지 방식
+## 사용 방법
 
-- 기존 Realtime Database 의 **`/reservations` 경로를 그대로 구독**합니다.
-- 기존 키(예: Firebase 가 만든 `-Nabc...` 형태) 와 필드 구조를 변경하지 않습니다.
-- 신규 저장은 `push()`, 수정은 `update()`, 취소는 `status: "cancelled"` 로 처리(soft delete) 합니다.
-- 마이그레이션 스크립트나 일괄 변환 없이 **읽고 쓰는 호환성**만 유지합니다.
+1. 처음 열면 **보기 모드**입니다. 예약 막대 또는 목록의 이름을 눌러 상세를 확인합니다.
+2. **편집하기**를 누르면 빈 칸의 예약 추가, 상세의 수정·취소, 카톡 가져오기가 가능합니다.
+3. 카톡 원문을 붙이고 **메시지 분석**을 누릅니다. 신규·변경·취소 후보, 오류, 제외된 알림과 원문을 확인합니다.
+4. 필요한 후보만 선택해 저장합니다. 기존 예약 변경은 기본 선택되지 않습니다. 모호한 취소는 한 대상을 직접 선택합니다.
+5. 원문이나 원격 데이터가 바뀌면 다시 분석해야 합니다. 실패한 입력과 원문은 유지됩니다.
+6. 취소한 예약은 목록의 **취소됨** 필터에서 열어 **취소 복구**할 수 있습니다. 잘못된 정보가 있으면 먼저 수정합니다.
+7. 상단 **JSON 백업**은 원본 전체, **CSV 내보내기**는 읽기 쉬운 목록입니다. JSON에는 기존 키·추가 필드·변경 이력까지 포함됩니다.
 
----
+예약을 변경하기 전에 JSON 백업을 받아 두세요. 앱은 자동 예약 백업이나 JSON 전체 덮어쓰기 복원을 수행하지 않습니다.
+JSON 전체 복원이 필요한 경우 파일의 `reservations` 내용을 검토한 뒤 Firebase 콘솔 등에서 별도로 처리해야 합니다.
+앱의 취소 복구는 개별 예약만 대상으로 합니다.
 
-## 디렉토리 구조
+## 계산과 입력 기준
 
-```
-src/
-  main.jsx
-  App.jsx
-  firebase/
-    firebaseClient.js     # Firebase 초기화 + db export
-  constants/
-    sites.js              # A1~A4, B1~B4, C1~C7
-    platforms.js          # 색상/라벨
-  hooks/
-    useReservations.js    # RTDB 실시간 구독 + CRUD
-  utils/
-    dateUtils.js
-    reservationUtils.js   # 중복 감지, 바 배치, 점유율, 취소 매칭
-    kakaoParsers.js       # 캠핏/땡큐캠핑 파서 (parser interface)
-  components/
-    Layout.jsx
-    TabNav.jsx
-    ReservationBoard.jsx
-    WeekNavigator.jsx
-    ReservationGrid.jsx
-    ReservationModal.jsx
-    KakaoParserPanel.jsx
-    StatsRow.jsx
-  styles/
-    global.css
-```
+- 입실일은 실제 존재하는 날짜, 박수는 1~365의 정수, 사이트는 등록된 15개 중 하나여야 합니다.
+- 날짜는 사용 기기의 현지 날짜를 기준으로 계산합니다. 퇴실일은 점유 기간에 포함하지 않아 당일 다른 예약의 입실이 가능합니다.
+- 점유율은 **점유 사이트 × 일수 / 15개 사이트 × 7일**입니다. 중복 예약을 중복 집계하지 않습니다.
+- 중복 경고와 예약 수는 선택한 주에 해당하는 예약만 집계합니다.
+- 목록의 기본 기간 검색은 **기간 중 숙박**이며 **기간 중 입실**로 바꿀 수 있습니다.
+- 오늘 퇴실하는 예약은 지난 예약을 숨겨도 보입니다. “지난 숙박”은 같은 이름·전화번호의 오늘 이전 퇴실 예약 건수입니다. 실제 방문이나 서로 다른 여행 횟수를 판정하는 값은 아닙니다.
+- 30일 이전 입실 알림은 기본 제외하되 결과에 표시하며, 포함 옵션으로 확인할 수 있습니다. 취소 알림에는 이 제한을 적용하지 않습니다.
+- 인식한 알림 형식은 캠핏 신규/변경/취소 알림, 땡큐캠핑 예약 확정/신청/변경/취소 안내입니다. 원문 형식이 바뀌면 필드를 확인하고 수정하세요. 예약 신청은 확정 여부를 직접 확인합니다.
 
----
+## 데이터 유지와 저장 방식
 
-## Vercel 배포
+기존 `/reservations/{key}` 경로와 기존 키를 유지합니다.
+조회만으로 원격 데이터를 변환하지 않습니다. 잘못된 항목은 “문제 항목 보기”에서 확인하며 화면 전체를 중단시키지 않습니다.
 
-1. 이 폴더를 GitHub 저장소로 푸시합니다.
-2. [Vercel](https://vercel.com) → New Project → GitHub 저장소 연결.
-3. Framework: **Vite** 가 자동 감지됩니다. (`vercel.json` 포함)
-4. Environment Variables 에 위 7개 `VITE_FIREBASE_*` 값을 등록합니다.
-5. Deploy.
+공통 필드:
+`reservationId, name, site, checkin, nights, phone, platform, status, cancelledAt`.
 
-> 기존 Netlify 단일 HTML 방식에서 GitHub → Vercel 배포 구조로 전환합니다.
+새로 변경하는 예약에는 `createdAt`(신규만), `updatedAt`, `_history/{작업ID-순번}`이 추가됩니다.
+이력에는 행동, 시각, 변경 전후 주요 필드가 들어갑니다. 기록 시각은 저장을 요청한 기기의 시계 기준입니다.
+알 수 없는 기존 필드는 보존하고, 문자열 등 잘못된 레코드를 명시적으로 수정하면 원래 값은 `_legacyValue`에 보존합니다.
+기존에 존재하던 변경 내역을 역으로 생성하지 않습니다.
 
----
+저장은 `/reservations`의 **단일 트랜잭션**으로 처리합니다.
+선택한 묶음은 전부 성공하거나 전부 실패하며, 재시도 때 최신 데이터에서 중복과 변경 충돌을 검사합니다.
+동시에 다른 화면이 바꾼 예약은 덮어쓰지 않고 다시 확인하도록 안내합니다.
+서버 응답 전에는 완료로 표시하지 않고 연속 클릭도 차단합니다.
+연결이 끊긴 채 이미 진행 중인 저장은 서버 확인을 기다리므로 창을 닫지 말고 연결을 복구하세요.
 
-## 보안 — 다음 단계 (필수)
+이 트랜잭션에는 `/reservations` 전체 읽기·쓰기 권한이 필요합니다.
+현재 프로젝트의 Rules가 이 경로의 트랜잭션 및 추가 이력 필드를 허용하는지는 별도로 확인해야 합니다.
+기존 필드만 허용하는 검증 규칙이 있으면 추가 필드로 인해 저장이 거절될 수 있습니다.
+가족용 소규모 데이터에 맞춘 방식이며, 이력까지 포함한 전체 데이터가 커지면 저장 단위와 이력 보관 방식을 재검토해야 합니다.
 
-현재 코드는 익명 RTDB 접근을 전제로 동작합니다. 운영 단계에서는 다음을 반드시 진행하세요.
+## 개발·검증
 
-- **Firebase Auth (관리자 로그인)** 도입 — 이메일/Google 로그인 등.
-- **Realtime Database Rules** 강화 — 최소한 다음과 같은 형태:
+- `npm test`: 날짜, 통계, 알림 분석, 원자적 저장 reducer, Firebase SDK mock, 실제 React 화면 상호작용 회귀 테스트
+- `npm run test:watch`: 개발 중 테스트
+- `npm run format` / `npm run format:check`: 코드 정렬
+- `npm run build`: 배포 빌드
+- `npm audit`: 현재 설치 의존성 점검
+- GitHub Actions는 push/PR마다 설치, 테스트, 형식 검사, 빌드를 실행합니다.
 
-  ```json
-  {
-    "rules": {
-      "reservations": {
-        ".read": "auth != null",
-        ".write": "auth != null"
-      }
-    }
-  }
-  ```
+Firebase SDK는 13.1 계열, Vite는 8.3 계열을 사용합니다.
+Firebase 패키지가 포함하는 Node용 Firestore 전이 의존성 `@grpc/grpc-js`는 보안 수정 버전 1.14.6으로 override했습니다.
+앱은 Firestore가 아닌 Realtime Database를 사용합니다. SDK 업데이트 때 override 필요성을 다시 확인하세요.
 
-- 운영에 익숙해진 뒤 관리자 화이트리스트(`auth.token.email` 검증 등)도 고려.
-
-`src/firebase/firebaseClient.js` 는 Auth 도입을 염두에 두고 작성되었습니다.
-
----
-
-## 향후 확장 — AI 카톡 파싱 자동화
-
-`src/utils/kakaoParsers.js` 는 다음 인터페이스를 따릅니다.
-
-```js
-parseReservationMessages(text) => {
-  platform: "캠핏" | "땡큐캠핑" | null,
-  newItems: Reservation[],
-  cancelList: CancelItem[],
-  warnings: string[]
-}
-```
-
-이 형태를 유지하면 추후 다음 확장이 가능합니다.
-
-- [ ] Gemini/Claude API 기반 자유형 카톡 메시지 파서 (`parseWithAI`)
-- [ ] 카톡 대화 요약 + 예약 후보 자동 추출
-- [ ] 사람이 확인 후 저장하는 **반자동 승인 플로우**
-- [ ] 예약 알림 수신 자동화 (웹훅 → RTDB 임시 큐 → 관리자 승인)
-- [ ] 파싱 로그 저장
-- [ ] 예약 변경/취소 이력 관리
-
-이번 작업에서 AI 연동은 **하지 않습니다**. 위는 구조만 열어둔 것입니다.
-
----
-
-## 기능 체크리스트 (기존 index.html 대비)
-
-- [x] Firebase RTDB 실시간 구독
-- [x] 주간 예약 보드 / 사이트별 행
-- [x] 예약 추가 / 수정 / soft delete 취소
-- [x] cancelled 예약 화면 제외
-- [x] 중복 예약 감지 (날짜 범위 겹침)
-- [x] 주간 이동 / 점유율 / 중복 카운트
-- [x] 캠핏 메시지 파싱
-- [x] 땡큐캠핑 메시지 파싱
-- [x] reservationId 기준 중복 저장 방지
-- [x] 취소 메시지 매칭 (ID 우선, fallback 포함)
-- [x] 파싱 결과 확인 후 저장
-- [x] 이미지 저장 (html2canvas 동적 import — 패키지 미설치 시 안내)
-- [x] 플랫폼 색상 / 모바일 대응
+테스트는 예시 데이터 및 SDK mock을 사용합니다. 운영 Firebase의 실제 권한, 네트워크 재연결, 배포 환경 값은 자동 테스트만으로 확인되지 않습니다.
+배포 전 별도 테스트 DB에서 추가→수정→취소→복구, 두 창의 동시 편집, 오프라인 후 재연결을 확인하세요.

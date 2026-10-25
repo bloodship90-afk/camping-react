@@ -1,11 +1,11 @@
-import { SITES } from "../constants/sites.js";
+import { SITES, ALL_SITES } from "../constants/sites.js";
 import { PLATFORM_COLOR } from "../constants/platforms.js";
-import { dateStr, DAY_KO } from "../utils/dateUtils.js";
+import { dateStr, DAY_KO, addDays } from "../utils/dateUtils.js";
 import {
   detectDuplicates,
   buildBarList,
+  inWeek,
 } from "../utils/reservationUtils.js";
-
 export default function ReservationGrid({
   weekDays,
   activeReservations,
@@ -14,114 +14,88 @@ export default function ReservationGrid({
   onBarClick,
 }) {
   const today = dateStr(new Date());
-
+  const bySite = Object.fromEntries(ALL_SITES.map((site) => [site, []]));
+  Object.entries(activeReservations).forEach((entry) => {
+    if (bySite[entry[1].site] && inWeek(entry[1], weekDays))
+      bySite[entry[1].site].push(entry);
+  });
   return (
-    <div className="chart-wrap" id="chartWrap">
-      {/* 헤더 */}
-      <div className="grid-header">
-        <div className="site-header-cell">사이트</div>
-        {weekDays.map((d, i) => {
-          const isWeekend = i >= 5;
-          const isToday = dateStr(d) === today;
-          const count = dailyCounts[i] ?? 0;
-          return (
+    <div className="chart-scroll">
+      <div className="chart-wrap" id="chartWrap">
+        <div className="grid-header">
+          <div className="site-header-cell">사이트</div>
+          {weekDays.map((d, i) => (
             <div
               key={i}
-              className={`grid-header-cell${isWeekend ? " weekend" : ""}${isToday ? " today" : ""}`}
+              className={`grid-header-cell${i >= 5 ? " weekend" : ""}${dateStr(d) === today ? " today" : ""}`}
             >
-              <span className="day-num">{d.getDate()} {DAY_KO[i]}</span>
-              <span className="day-count">{count}/15</span>
+              <span className="day-num">
+                {d.getDate()} {DAY_KO[i]}
+              </span>
+              <span className="day-count">
+                {dailyCounts[i] ?? 0}/{ALL_SITES.length}
+              </span>
             </div>
-          );
-        })}
-      </div>
-
-      {/* 사이트별 행 */}
-      <div>
-        {Object.entries(SITES).map(([zone, sites]) =>
+          ))}
+        </div>
+        {Object.entries(SITES).flatMap(([zone, sites]) =>
           sites.map((site, si) => {
-            const isLast = si === sites.length - 1;
-            const zoneClass = `zone-${zone.toLowerCase()}`;
-            const sepClass = isLast ? " zone-sep" : "";
-
-            const siteRes = Object.entries(activeReservations).filter(
-              ([, r]) => r.site === site
-            );
-
-            const { dups } = detectDuplicates(siteRes);
-            const { barList, rowAssign } = buildBarList(siteRes, weekDays);
-
-            const maxRow =
-              barList.length > 0
-                ? Math.max(...barList.map((b) => rowAssign[b.key]))
-                : 0;
-            const barH = 24;
-            const barGap = 4;
-            const totalH = Math.max(36, (maxRow + 1) * (barH + barGap) + barGap);
-
-            const weekStart = weekDays[0];
-            const weekEnd = new Date(weekDays[6]);
-            weekEnd.setDate(weekEnd.getDate() + 1);
-
+            const entries = bySite[site],
+              { dups } = detectDuplicates(entries),
+              { barList, rowAssign } = buildBarList(entries, weekDays);
+            const maxRow = barList.length
+              ? Math.max(...Object.values(rowAssign))
+              : 0;
             return (
-              <div key={site} className={`site-row ${zoneClass}${sepClass}`}>
+              <div
+                key={site}
+                className={`site-row zone-${zone.toLowerCase()}${si === sites.length - 1 ? " zone-sep" : ""}`}
+              >
                 <div className="site-label">{site}</div>
                 <div
                   className="days-area"
-                  style={{ minHeight: `${totalH}px` }}
+                  style={{ minHeight: Math.max(44, (maxRow + 1) * 36 + 4) }}
                 >
-                  {weekDays.map((d, i) => {
-                    const isWeekend = i >= 5;
-                    const isToday = dateStr(d) === today;
-                    return (
-                      <div
-                        key={i}
-                        className={`day-slot${isWeekend ? " weekend" : ""}${isToday ? " today" : ""}`}
-                        onClick={() => onSlotClick(site, dateStr(d))}
-                      />
-                    );
-                  })}
-
-                  {barList.map(({ key, r, startIdx, endIdx, span, checkin, checkout }) => {
-                    const isDup = dups.has(key);
-                    const color = isDup
-                      ? "#c0392b"
-                      : PLATFORM_COLOR[r.platform] || "#666";
-                    const isStart = checkin >= weekStart;
-                    const isEnd = checkout <= weekEnd;
-                    const br = `${isStart ? "7px" : "0"} ${isEnd ? "7px" : "0"} ${isEnd ? "7px" : "0"} ${isStart ? "7px" : "0"}`;
-                    const row = rowAssign[key] || 0;
-                    const topPx = barGap + row * (barH + barGap);
-                    return (
-                      <div
+                  {weekDays.map((d, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className={`day-slot${i >= 5 ? " weekend" : ""}${dateStr(d) === today ? " today" : ""}`}
+                      disabled={!onSlotClick}
+                      aria-label={`${site} ${dateStr(d)} 예약 추가`}
+                      onClick={() => onSlotClick?.(site, dateStr(d))}
+                    />
+                  ))}
+                  {barList.map(
+                    ({ key, r, startIdx, span, checkin, checkout }) => (
+                      <button
                         key={key}
+                        type="button"
                         className="res-bar"
                         style={{
                           left: `calc(${startIdx}/7*100% + 3px)`,
                           width: `calc(${span}/7*100% - 6px)`,
-                          top: `${topPx}px`,
-                          height: `${barH}px`,
-                          background: color,
-                          borderRadius: br,
-                          boxShadow: isDup
-                            ? "0 0 0 2px #ff6b6b,0 2px 10px rgba(192,57,43,0.5)"
-                            : undefined,
+                          top: 4 + (rowAssign[key] || 0) * 36,
+                          height: 32,
+                          background: dups.has(key)
+                            ? "#b62e30"
+                            : PLATFORM_COLOR[r.platform] || "#526677",
+                          borderRadius: `${checkin >= weekDays[0] ? 7 : 0}px ${checkout <= addDays(weekDays[6], 1) ? 7 : 0}px`,
                         }}
-                        title={`${isDup ? "⚠️ 중복! " : ""}${r.name} | ${r.phone || ""} | ${r.nights}박 | ${r.platform} | 체크인:${r.checkin}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onBarClick(key);
-                        }}
+                        onClick={() => onBarClick(key)}
+                        title={`${r.name} · ${r.checkin} · ${r.nights}박`}
+                        aria-label={`${dups.has(key) ? "중복 예약 " : ""}${r.name} ${site} ${r.checkin} ${r.nights}박 상세`}
                       >
-                        {isDup ? "⚠️ " : ""}
-                        {r.platform.replace("캠핑", "")}-{r.name}
-                      </div>
-                    );
-                  })}
+                        {dups.has(key) ? "⚠ " : ""}
+                        {(r.platform || "미지정").replace("캠핑", "")}-
+                        {r.name || "이름 없음"}
+                      </button>
+                    ),
+                  )}
                 </div>
               </div>
             );
-          })
+          }),
         )}
       </div>
     </div>

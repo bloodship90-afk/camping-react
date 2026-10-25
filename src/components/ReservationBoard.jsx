@@ -1,162 +1,141 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ALL_SITES } from "../constants/sites.js";
-import { getWeekDates } from "../utils/dateUtils.js";
-import {
-  filterActive,
-  detectDuplicates,
-  calcWeekStats,
-} from "../utils/reservationUtils.js";
-import WeekNavigator from "./WeekNavigator.jsx";
+import { dateStr, getWeekDates, toDate } from "../utils/dateUtils.js";
+import { calcWeekStats, filterActive } from "../utils/reservationUtils.js";
 import ReservationGrid from "./ReservationGrid.jsx";
-import StatsRow from "./StatsRow.jsx";
-import ReservationModal from "./ReservationModal.jsx";
-
+import { downloadFile } from "../utils/exportUtils.js";
 export default function ReservationBoard({
   reservations,
-  addReservation,
-  updateReservation,
-  cancelReservation,
+  today,
+  editable,
+  canWrite,
+  onOpen,
+  onAdd,
 }) {
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [modal, setModal] = useState({
-    open: false,
-    editingKey: null,
-    initial: null,
-  });
-
-  const weekDays = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
-  const activeReservations = useMemo(
-    () => filterActive(reservations),
-    [reservations]
+  const [selectedDate, setSelectedDate] = useState("");
+  const [capturing, setCapturing] = useState(false),
+    [error, setError] = useState("");
+  const [captureMessage, setCaptureMessage] = useState("");
+  const capture = useRef(null);
+  const weekDays = useMemo(
+    () => getWeekDates(0, selectedDate || today),
+    [selectedDate, today],
   );
-
-  // 통계 — 주간 겹침 예약 수 + 날짜별 예약 수 + 점유율 + 중복
-  const stats = useMemo(() => {
-    let dupPairs = 0;
-    ALL_SITES.forEach((site) => {
-      const siteRes = Object.entries(activeReservations).filter(
-        ([, r]) => r.site === site
-      );
-      const { dupPairs: dp } = detectDuplicates(siteRes);
-      dupPairs += dp;
-    });
-    const { weekRes, dailyCounts, occupancy } = calcWeekStats(
-      activeReservations,
-      weekDays,
-      ALL_SITES.length
-    );
-    return { weekRes, dailyCounts, occupancy, dupPairs };
-  }, [activeReservations, weekDays]);
-
-  const openAdd = (site, date) =>
-    setModal({
-      open: true,
-      editingKey: null,
-      initial: site || date ? { site, checkin: date } : null,
-    });
-
-  const openEdit = (key) =>
-    setModal({
-      open: true,
-      editingKey: key,
-      initial: reservations[key] || null,
-    });
-
-  const closeModal = () =>
-    setModal({ open: false, editingKey: null, initial: null });
-
-  const handleSave = async (data) => {
+  const active = useMemo(() => filterActive(reservations), [reservations]);
+  const stats = useMemo(
+    () => calcWeekStats(active, weekDays, ALL_SITES.length),
+    [active, weekDays],
+  );
+  function move(offset) {
+    const d = toDate(dateStr(weekDays[0]));
+    d.setDate(d.getDate() + offset * 7);
+    setSelectedDate(dateStr(d));
+  }
+  async function saveImage() {
+    if (capturing) return;
+    setCapturing(true);
+    setError("");
+    setCaptureMessage("");
     try {
-      if (modal.editingKey) {
-        await updateReservation(modal.editingKey, data);
-      } else {
-        await addReservation(data);
-      }
-      closeModal();
-    } catch {
-      // alert 은 훅에서 처리
-    }
-  };
-
-  const handleCancel = async (key) => {
-    try {
-      await cancelReservation(key);
-      closeModal();
-    } catch {
-      /* alert in hook */
-    }
-  };
-
-  // TODO(이미지 저장): html2canvas 동적 import 로 복원 가능.
-  // 현재는 빌드 안정성 우선 — 추후 별도 컴포넌트로 분리 예정.
-  const saveImage = async () => {
-    try {
-      const mod = await import("html2canvas");
-      const html2canvas = mod.default;
-      const target = document.getElementById("captureArea");
-      if (!target) return;
-      const canvas = await html2canvas(target, {
-        backgroundColor: "#16232f",
+      await document.fonts?.ready;
+      const { default: html2canvas } = await import("html2canvas");
+      const canvas = await html2canvas(capture.current, {
+        backgroundColor: "#0f1923",
         scale: 2,
-        onclone: (clonedDoc) => {
-          const clonedHeader = clonedDoc.querySelector(
-            "#captureArea .grid-header"
-          );
-          if (clonedHeader) {
-            clonedHeader.style.setProperty("position", "static", "important");
-            clonedHeader.style.setProperty("top", "auto", "important");
-            clonedHeader.style.setProperty("z-index", "auto", "important");
-          }
+        windowWidth: Math.max(1000, document.documentElement.clientWidth),
+        onclone: (doc) => {
+          const target = doc.getElementById("captureArea");
+          target.style.width = "1000px";
+          const header = target.querySelector(".grid-header");
+          header.style.position = "static";
+          const wrap = target.querySelector(".chart-scroll");
+          wrap.style.overflow = "visible";
         },
       });
-      const a = document.createElement("a");
-      a.href = canvas.toDataURL("image/png");
-      a.download = `캠핑장예약_${new Date().toLocaleDateString("ko-KR")}.png`;
-      a.click();
-    } catch (e) {
-      alert(
-        "이미지 저장은 추후 활성화됩니다. (html2canvas 패키지 설치 필요)\n" +
-          e.message
+      const blob = await new Promise((resolve) =>
+        canvas.toBlob(resolve, "image/png"),
       );
+      if (!blob) throw new Error("이미지 파일을 만들 수 없습니다.");
+      downloadFile(
+        blob,
+        `캠핑장예약_${dateStr(weekDays[0])}_${dateStr(weekDays[6])}.png`,
+        "image/png",
+      );
+      setCaptureMessage(
+        "이미지를 만들었습니다. 브라우저의 다운로드 목록을 확인하세요.",
+      );
+    } catch (e) {
+      setError("이미지 저장 실패: " + e.message);
+    } finally {
+      setCapturing(false);
     }
-  };
-
+  }
   return (
     <>
-      <div id="captureArea" className="capture-area">
-        <WeekNavigator
-          weekDays={weekDays}
-          onPrev={() => setWeekOffset((o) => o - 1)}
-          onNext={() => setWeekOffset((o) => o + 1)}
-        />
+      <div className="board-toolbar">
+        <button onClick={() => move(-1)}>◀ 이전 주</button>
+        <button onClick={() => setSelectedDate("")}>이번 주</button>
+        <button onClick={() => move(1)}>다음 주 ▶</button>
+        <label>
+          날짜로 이동{" "}
+          <input
+            type="date"
+            value={selectedDate || today}
+            onChange={(e) => setSelectedDate(e.target.value)}
+          />
+        </label>
+      </div>
+      <div ref={capture} id="captureArea" className="capture-area">
+        <h2 className="week-label">
+          {dateStr(weekDays[0])} ~ {dateStr(weekDays[6])}
+        </h2>
         <ReservationGrid
           weekDays={weekDays}
-          activeReservations={activeReservations}
+          activeReservations={active}
           dailyCounts={stats.dailyCounts}
-          onSlotClick={openAdd}
-          onBarClick={openEdit}
+          onSlotClick={editable && canWrite ? onAdd : null}
+          onBarClick={onOpen}
         />
-        <StatsRow
-          weekRes={stats.weekRes}
-          occupancy={stats.occupancy}
-          dupPairs={stats.dupPairs}
-        />
+        <div className="stats-row">
+          <div className="stat-chip">
+            선택 주 예약 <span>{stats.weekRes}</span>건
+          </div>
+          <div className="stat-chip">
+            사이트 점유율 <span>{stats.occupancy}%</span>
+          </div>
+          {stats.duplicateCount > 0 && (
+            <div className="stat-chip stat-warn">
+              중복 예약 {stats.duplicateCount}건 · 겹침 {stats.dupPairs}쌍
+            </div>
+          )}
+        </div>
       </div>
-      <button className="add-btn" onClick={() => openAdd()}>
-        + 예약 추가
+      <p className="muted board-help">
+        예약을 누르면 상세 정보를 확인할 수 있습니다. 작은 화면에서는 표를
+        좌우로 움직여 보세요.
+      </p>
+      {editable && (
+        <button
+          className="add-btn"
+          disabled={!canWrite}
+          onClick={() => onAdd("A1", today)}
+        >
+          + 예약 추가
+        </button>
+      )}
+      <button className="shot-btn" disabled={capturing} onClick={saveImage}>
+        {capturing ? "이미지 만드는 중…" : "📷 선택 주 이미지 저장"}
       </button>
-      <button className="shot-btn" onClick={saveImage}>
-        📷 이미지 저장
-      </button>
-
-      <ReservationModal
-        open={modal.open}
-        editingKey={modal.editingKey}
-        initial={modal.initial}
-        onClose={closeModal}
-        onSave={handleSave}
-        onCancel={handleCancel}
-      />
+      {error && (
+        <p role="alert" className="notice warning">
+          {error}
+        </p>
+      )}
+      {captureMessage && (
+        <p role="status" className="notice">
+          {captureMessage}
+        </p>
+      )}
     </>
   );
 }

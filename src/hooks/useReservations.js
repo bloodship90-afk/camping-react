@@ -1,97 +1,146 @@
-import { useEffect, useState, useCallback } from "react";
-import { ref, onValue, push, update } from "firebase/database";
-import {
-  db,
-  isFirebaseConfigured,
-  missingFirebaseKeys,
-} from "../firebase/firebaseClient.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ref, onValue, push, runTransaction } from "firebase/database";
+import { db, initializationError } from "../firebase/firebaseClient.js";
+import { applyOperations } from "../utils/reservationMutations.js";
 
-// reservations 실시간 구독 + CRUD
 export function useReservations() {
   const [reservations, setReservations] = useState({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
+  const [loading, setLoading] = useState(!!db),
+    [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(initializationError),
+    [connected, setConnected] = useState(false);
+  const [lastReceived, setLastReceived] = useState(null),
+    [saving, setSaving] = useState(false),
+    [message, setMessage] = useState("");
+  const ready = useRef(false),
+    connectedRef = useRef(false),
+    busy = useRef(false);
   useEffect(() => {
-    // 빈 env: 백지 대신 안내 에러를 세팅하고 구독을 건너뜀
-    if (!isFirebaseConfigured || !db) {
-      setLoading(false);
-      setError(
-        new Error(
-          ".env.local 에 Firebase 키를 설정하세요. 누락: " +
-            missingFirebaseKeys.join(", ")
-        )
-      );
-      return;
-    }
-    const r = ref(db, "reservations");
-    const unsub = onValue(
-      r,
-      (snapshot) => {
-        setReservations(snapshot.val() || {});
+    if (!db) return;
+    const timeout = setTimeout(() => {
+      if (!ready.current)
+        setError(
+          new Error(
+            "예약 정보를 불러오는 데 시간이 걸립니다. 연결을 확인하세요.",
+          ),
+        );
+    }, 15000);
+    const unsubscribe = onValue(
+      ref(db, "reservations"),
+      (snap) => {
+        const value = snap.val();
+        if (
+          value !== null &&
+          (typeof value !== "object" || Array.isArray(value))
+        ) {
+          ready.current = false;
+          setLoaded(false);
+          setLoading(false);
+          setError(new Error("예약 데이터 형식이 올바르지 않습니다."));
+          return;
+        }
+        ready.current = true;
+        setReservations(value || {});
+        setLoaded(true);
         setLoading(false);
+        setError(null);
+        setLastReceived(Date.now());
+        clearTimeout(timeout);
       },
       (err) => {
-        console.error("[useReservations] onValue error:", err);
-        setError(err);
+        ready.current = false;
+        setLoaded(false);
         setLoading(false);
-      }
+        setError(err);
+        clearTimeout(timeout);
+      },
     );
-    return () => unsub();
+    const disconnect = onValue(
+      ref(db, ".info/connected"),
+      (snap) => {
+        connectedRef.current = snap.val() === true;
+        setConnected(connectedRef.current);
+      },
+      () => {
+        connectedRef.current = false;
+        setConnected(false);
+      },
+    );
+    return () => {
+      unsubscribe();
+      disconnect();
+      clearTimeout(timeout);
+      ready.current = false;
+    };
   }, []);
-
-  const addReservation = useCallback(async (data) => {
-    if (!db) {
-      alert("Firebase 가 설정되지 않아 저장할 수 없습니다. .env.local 을 확인하세요.");
-      return;
-    }
+  useEffect(() => {
+    if (!saving) return;
+    const prevent = (e) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", prevent);
+    return () => window.removeEventListener("beforeunload", prevent);
+  }, [saving]);
+  const commit = useCallback(async (operations) => {
+    if (busy.current)
+      throw new Error("저장 중입니다. 완료될 때까지 기다려 주세요.");
+    if (!db || !ready.current || !connectedRef.current)
+      throw new Error(
+        "예약 정보를 불러오고 연결이 확인된 후 저장할 수 있습니다.",
+      );
+    if (!operations.length) throw new Error("선택된 작업이 없습니다.");
+    busy.current = true;
+    setSaving(true);
+    setMessage("");
+    // Stable keys and request id across Firebase transaction retries.
+    let conflict;
     try {
-      await push(ref(db, "reservations"), data);
+      const prepared = operations.map((op) => ({
+        ...op,
+        key: op.key || push(ref(db, "reservations")).key,
+      }));
+      const operationId = push(ref(db, "reservations")).key,
+        at = Date.now();
+      const result = await runTransaction(
+        ref(db, "reservations"),
+        (current) => {
+          try {
+            const next = applyOperations(current, prepared, {
+              operationId,
+              at,
+            });
+            conflict = null;
+            return next;
+          } catch (e) {
+            conflict = e;
+            return undefined;
+          }
+        },
+        { applyLocally: false },
+      );
+      if (!result.committed)
+        throw conflict || new Error("저장되지 않았습니다. 다시 확인하세요.");
+      setMessage(`${operations.length}건 저장 완료`);
+      return result.snapshot.val();
     } catch (e) {
-      console.error("[addReservation] failed:", e);
-      alert("저장 실패: " + e.message);
+      setMessage("저장 실패: " + e.message);
       throw e;
+    } finally {
+      busy.current = false;
+      setSaving(false);
     }
   }, []);
-
-  const updateReservation = useCallback(async (key, data) => {
-    if (!db) {
-      alert("Firebase 가 설정되지 않아 수정할 수 없습니다. .env.local 을 확인하세요.");
-      return;
-    }
-    try {
-      await update(ref(db, `reservations/${key}`), data);
-    } catch (e) {
-      console.error("[updateReservation] failed:", e);
-      alert("수정 실패: " + e.message);
-      throw e;
-    }
-  }, []);
-
-  // soft delete — 기존 status: "cancelled" 방식 유지
-  const cancelReservation = useCallback(async (key) => {
-    if (!db) {
-      alert("Firebase 가 설정되지 않아 취소할 수 없습니다. .env.local 을 확인하세요.");
-      return;
-    }
-    try {
-      await update(ref(db, `reservations/${key}`), {
-        status: "cancelled",
-        cancelledAt: Date.now(),
-      });
-    } catch (e) {
-      console.error("[cancelReservation] failed:", e);
-      alert("취소 실패: " + e.message);
-      throw e;
-    }
-  }, []);
-
   return {
     reservations,
     loading,
+    loaded,
     error,
-    addReservation,
-    updateReservation,
-    cancelReservation,
+    connected,
+    lastReceived,
+    saving,
+    message,
+    commit,
+    canWrite: !!db && loaded && connected && !error && !saving,
   };
 }

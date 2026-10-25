@@ -1,164 +1,181 @@
-import { toDate, dateStr } from "./dateUtils.js";
+import { toDate, dateStr, addDays, getCheckoutDate } from "./dateUtils.js";
+import { ALL_SITES } from "../constants/sites.js";
+import { identityMatches, normPhone, text } from "./reservationModel.js";
 
-// status === "cancelled" 제외
-export function filterActive(reservations) {
-  return Object.fromEntries(
-    Object.entries(reservations).filter(([, r]) => r.status !== "cancelled")
+export function isSchedulable(r) {
+  return (
+    r &&
+    ALL_SITES.includes(r.site) &&
+    !!dateStr(toDate(r.checkin)) &&
+    !!dateStr(getCheckoutDate(r))
   );
 }
-
-// 같은 사이트 내 날짜 범위 겹침 검출 → 중복 key Set 과 pair 개수
+export function filterActive(reservations) {
+  return Object.fromEntries(
+    Object.entries(reservations || {}).filter(
+      ([, r]) => r?.status !== "cancelled" && isSchedulable(r),
+    ),
+  );
+}
+export function overlaps(a, b) {
+  return (
+    isSchedulable(a) &&
+    isSchedulable(b) &&
+    a.site === b.site &&
+    toDate(a.checkin) < getCheckoutDate(b) &&
+    toDate(b.checkin) < getCheckoutDate(a)
+  );
+}
+export function conflictsFor(reservations, candidate, exceptKey) {
+  return Object.entries(filterActive(reservations)).filter(
+    ([k, r]) => k !== exceptKey && overlaps(r, candidate),
+  );
+}
+export function inWeek(r, weekDays) {
+  return (
+    isSchedulable(r) &&
+    toDate(r.checkin) < addDays(weekDays[6], 1) &&
+    getCheckoutDate(r) > weekDays[0]
+  );
+}
 export function detectDuplicates(siteReservations) {
   const dups = new Set();
   let dupPairs = 0;
-  for (let a = 0; a < siteReservations.length; a++) {
+  for (let a = 0; a < siteReservations.length; a++)
     for (let b = a + 1; b < siteReservations.length; b++) {
-      const [ka, ra] = siteReservations[a];
-      const [kb, rb] = siteReservations[b];
-      const aS = toDate(ra.checkin);
-      const aE = new Date(aS);
-      aE.setDate(aE.getDate() + ra.nights);
-      const bS = toDate(rb.checkin);
-      const bE = new Date(bS);
-      bE.setDate(bE.getDate() + rb.nights);
-      if (aS < bE && bS < aE) {
-        dups.add(ka);
-        dups.add(kb);
+      if (overlaps(siteReservations[a][1], siteReservations[b][1])) {
+        dups.add(siteReservations[a][0]);
+        dups.add(siteReservations[b][0]);
         dupPairs++;
       }
     }
-  }
   return { dups, dupPairs };
 }
-
-// 한 사이트의 예약 바를 주차에 맞춰 배치 (start/end index, 행 배정 포함)
 export function buildBarList(siteReservations, weekDays) {
-  const weekStart = weekDays[0];
-  const weekEnd = new Date(weekDays[6]);
-  weekEnd.setDate(weekEnd.getDate() + 1);
-  const weekStrs = weekDays.map((d) => dateStr(d));
-
-  const barList = [];
-  siteReservations.forEach(([key, r]) => {
-    const checkin = toDate(r.checkin);
-    const checkout = new Date(checkin);
-    checkout.setDate(checkout.getDate() + r.nights);
-    if (checkout <= weekStart || checkin >= weekEnd) return;
-
-    let startIdx = weekStrs.findIndex((s) => s === dateStr(checkin));
-    if (startIdx < 0) startIdx = checkin < weekStart ? 0 : 7;
-    let endIdx = weekStrs.findIndex((s) => s === dateStr(checkout));
-    if (endIdx < 0) endIdx = checkout > weekDays[6] ? 7 : 0;
-
-    startIdx = Math.max(0, startIdx);
-    endIdx = Math.min(7, endIdx);
-    const span = endIdx - startIdx;
-    if (span <= 0) return;
-    barList.push({ key, r, startIdx, endIdx, span, checkin, checkout });
-  });
-
-  // 같은 행에서 겹치지 않게 행 배정
+  const barList = siteReservations
+    .filter(([, r]) => inWeek(r, weekDays))
+    .map(([key, r]) => {
+      const checkin = toDate(r.checkin),
+        checkout = getCheckoutDate(r);
+      const startIdx = weekDays.findIndex((d) => d >= checkin);
+      const endIdx = weekDays.findIndex((d) => d >= checkout);
+      const start = Math.max(0, startIdx),
+        end = endIdx < 0 ? 7 : endIdx;
+      return {
+        key,
+        r,
+        startIdx: start,
+        endIdx: end,
+        span: end - start,
+        checkin,
+        checkout,
+      };
+    })
+    .filter((b) => b.span > 0)
+    .sort(
+      (a, b) =>
+        a.startIdx - b.startIdx ||
+        b.span - a.span ||
+        a.key.localeCompare(b.key),
+    );
   const rowAssign = {};
-  barList.forEach((b, i) => {
+  barList.forEach((bar, i) => {
     let row = 0;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const conflict = barList.slice(0, i).some(
-        (prev) =>
-          rowAssign[prev.key] === row &&
-          b.startIdx < prev.endIdx &&
-          prev.startIdx < b.endIdx
-      );
-      if (!conflict) break;
+    while (
+      barList
+        .slice(0, i)
+        .some(
+          (prev) =>
+            rowAssign[prev.key] === row &&
+            bar.startIdx < prev.endIdx &&
+            prev.startIdx < bar.endIdx,
+        )
+    )
       row++;
-    }
-    rowAssign[b.key] = row;
+    rowAssign[bar.key] = row;
   });
-
   return { barList, rowAssign };
 }
-
-// 주간 통합 통계: 이번 주 예약 건수 + 날짜별 예약 수 + 점유율
-// dailyCounts[i]: weekDays[i] 날에 실제 숙박 중인 active 예약 수 (퇴실일 제외)
-// weekRes: 현재 주간과 1일이라도 겹치는 active 예약 수
-export function calcWeekStats(activeReservations, weekDays, totalSites) {
-  const weekStart = weekDays[0];
-  const weekEndExclusive = new Date(weekDays[6]);
-  weekEndExclusive.setDate(weekEndExclusive.getDate() + 1);
-
-  const dailyCounts = new Array(7).fill(0);
-  let weekRes = 0;
-
-  Object.values(activeReservations).forEach((r) => {
-    const checkin = toDate(r.checkin);
-    const checkout = new Date(checkin);
-    checkout.setDate(checkout.getDate() + Number(r.nights));
-
-    if (checkin < weekEndExclusive && checkout > weekStart) {
-      weekRes++;
-    }
-
-    for (let i = 0; i < 7; i++) {
-      const d = weekDays[i];
-      if (checkin <= d && d < checkout) {
-        dailyCounts[i]++;
+export function calcWeekStats(
+  reservations,
+  weekDays,
+  totalSites = ALL_SITES.length,
+) {
+  const entries = Object.entries(filterActive(reservations)).filter(([, r]) =>
+    inWeek(r, weekDays),
+  );
+  const occupied = weekDays.map(() => new Set()),
+    reservationCounts = weekDays.map(() => 0);
+  entries.forEach(([, r]) =>
+    weekDays.forEach((d, i) => {
+      if (toDate(r.checkin) <= d && d < getCheckoutDate(r)) {
+        occupied[i].add(r.site);
+        reservationCounts[i]++;
       }
-    }
-  });
-
-  const usedSlots = dailyCounts.reduce((a, b) => a + b, 0);
-  const totalSlots = totalSites * 7;
-  const occupancy = totalSlots > 0 ? Math.round((usedSlots / totalSlots) * 100) : 0;
-
-  return { weekRes, dailyCounts, occupancy, usedSlots, totalSlots };
-}
-
-// 주간 점유율 계산
-export function calcOccupancy(activeReservations, weekDays, totalSites) {
-  const totalSlots = totalSites * 7;
-  let usedSlots = 0;
-  const start = weekDays[0];
-  const end = weekDays[6];
-  Object.values(activeReservations).forEach((r) => {
-    const s = toDate(r.checkin);
-    for (let i = 0; i < r.nights; i++) {
-      const d = new Date(s);
-      d.setDate(d.getDate() + i);
-      if (d >= start && d <= end) usedSlots++;
-    }
+    }),
+  );
+  const dailyCounts = occupied.map((s) => s.size);
+  const usedSlots = dailyCounts.reduce((a, b) => a + b, 0),
+    totalSlots = totalSites * 7;
+  let dupPairs = 0;
+  const duplicates = new Set();
+  ALL_SITES.forEach((site) => {
+    const result = detectDuplicates(entries.filter(([, r]) => r.site === site));
+    dupPairs += result.dupPairs;
+    result.dups.forEach((k) => duplicates.add(k));
   });
   return {
-    occupancy: Math.round((usedSlots / totalSlots) * 100),
+    weekRes: entries.length,
+    dailyCounts,
+    reservationCounts,
     usedSlots,
     totalSlots,
+    occupancy: totalSlots ? Math.round((100 * usedSlots) / totalSlots) : 0,
+    dupPairs,
+    duplicateCount: duplicates.size,
+    excessNights: reservationCounts.reduce(
+      (n, c, i) => n + c - dailyCounts[i],
+      0,
+    ),
   };
 }
-
-// reservationId 기준 중복 저장 방지 — index.html 의 isDuplicate 와 동치
-export function isDuplicateReservation(reservations, reservationId) {
-  if (!reservationId) return false;
-  return Object.values(reservations).some(
-    (r) => r.reservationId === reservationId && r.status !== "cancelled"
+export const calcOccupancy = calcWeekStats;
+export function isDuplicateReservation(reservations, reservationId, platform) {
+  return Object.values(reservations || {}).some(
+    (r) =>
+      text(r?.reservationId) === text(reservationId) &&
+      !!text(reservationId) &&
+      (!platform || !r?.platform || r.platform === platform),
   );
 }
-
-// 취소 매칭: reservationId 우선, 실패 시 name+phone+checkin fallback
 export function findCancelKeys(reservations, cancelItem) {
-  const normPhone = (p) => (p || "").replace(/\D/g, "");
-  const byId = [];
-  const byFallback = [];
-  Object.entries(reservations).forEach(([k, r]) => {
-    if (r.status === "cancelled") return;
-    if (cancelItem.reservationId && r.reservationId === cancelItem.reservationId) {
-      byId.push(k);
-    } else if (
-      r.name === cancelItem.name &&
-      normPhone(r.phone) === normPhone(cancelItem.phone) &&
-      r.checkin === cancelItem.checkin
-    ) {
-      byFallback.push(k);
-    }
-  });
-  const matched = byId.length > 0 ? byId : byFallback;
-  return { keys: matched, isFallback: byId.length === 0 && byFallback.length > 0 };
+  const active = Object.fromEntries(
+    Object.entries(reservations || {}).filter(
+      ([, r]) => r?.status !== "cancelled",
+    ),
+  );
+  const byId = identityMatches(active, cancelItem);
+  if (byId.length)
+    return {
+      keys: byId.map(([k]) => k),
+      isFallback: byId.some(([, r]) => !r.platform),
+    };
+  if (
+    !text(cancelItem.name) ||
+    !normPhone(cancelItem.phone) ||
+    !dateStr(toDate(cancelItem.checkin))
+  )
+    return { keys: [], isFallback: false };
+  const candidates = Object.entries(active).filter(
+    ([, r]) =>
+      (!r?.platform || r.platform === cancelItem.platform) &&
+      text(r?.name) === text(cancelItem.name) &&
+      normPhone(r?.phone) === normPhone(cancelItem.phone) &&
+      r?.checkin === cancelItem.checkin &&
+      (!cancelItem.site || r?.site === cancelItem.site),
+  );
+  return {
+    keys: candidates.map(([k]) => k),
+    isFallback: candidates.length > 0,
+  };
 }
