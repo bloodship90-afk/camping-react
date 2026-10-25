@@ -1,0 +1,39 @@
+.details-grid .reservation-contact-field {
+  grid-column: 1 / -1;
+}
+.reservation-contact-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+.reservation-contact-actions .reservation-contact-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 0;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-decoration: none;
+  text-align: center;
+}
+.reservation-contact-action[href]:hover {
+  border-color: var(--accent);
+}
+.reservation-contact-action[href]:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.reservation-contact-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

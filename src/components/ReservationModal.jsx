@@ -8,6 +8,7 @@ import {
 import { dateStr, getCheckoutDate } from "../utils/dateUtils.js";
 import { conflictsFor } from "../utils/reservationUtils.js";
 import ReservationFields from "./ReservationFields.jsx";
+import ReservationContactActions from "./ReservationContactActions.jsx";
 const empty = {
   name: "",
   site: "A1",
@@ -187,9 +188,24 @@ export default function ReservationModal({
               ["플랫폼", form.platform || "미지정"],
               ["예약번호", form.reservationId || "직접 입력"],
             ].map(([label, value]) => (
-              <div key={label}>
+              <div
+                key={label}
+                className={
+                  label === "전화번호" && recordKey
+                    ? "reservation-contact-field"
+                    : undefined
+                }
+              >
                 <dt>{label}</dt>
-                <dd>{value}</dd>
+                <dd>
+                  {value}
+                  {label === "전화번호" && recordKey && (
+                    <ReservationContactActions
+                      phone={raw?.phone ?? form.phone}
+                      disabled={saving}
+                    />
+                  )}
+                </dd>
               </div>
             ))}
           </dl>
