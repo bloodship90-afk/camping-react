@@ -41,8 +41,10 @@ export default function KakaoParserPanel({
     setError("");
     setAllowOverlap(false);
   }
-  function analyze() {
-    const parsed = parseReservationMessages(text, { includePast });
+  function analyze(source = text, includeOlder = includePast) {
+    const parsed = parseReservationMessages(source, {
+      includePast: includeOlder,
+    });
     setAnalysis({ ...parsed, version: fingerprint(rawReservations) });
     setMessage("");
     setError("");
@@ -99,7 +101,7 @@ export default function KakaoParserPanel({
     <div className="parse-wrap">
       <h2>카톡 예약 가져오기</h2>
       <p>
-        캠핏·땡큐캠핑 알림을 함께 붙여 넣고 분석하세요. 신규·변경·취소 내용을
+        캠핏·땡큐캠핑 알림을 붙여 넣으면 바로 분석합니다. 신규·변경·취소 내용을
         확인한 뒤 선택한 항목만 저장합니다.
       </p>
       <label htmlFor="kakao-input">예약 메시지 원문</label>
@@ -109,8 +111,10 @@ export default function KakaoParserPanel({
         value={text}
         disabled={saving}
         onChange={(e) => {
-          setText(e.target.value);
+          const next = e.target.value;
+          setText(next);
           invalidate();
+          if (next.trim()) analyze(next);
         }}
         placeholder="카카오톡 예약 알림을 붙여 넣으세요"
       />
@@ -120,19 +124,14 @@ export default function KakaoParserPanel({
           checked={includePast}
           disabled={saving}
           onChange={(e) => {
-            setIncludePast(e.target.checked);
+            const next = e.target.checked;
+            setIncludePast(next);
             invalidate();
+            if (text.trim()) analyze(text, next);
           }}
         />
         30일 이전 입실 알림도 포함
       </label>
-      <button
-        className="parse-btn"
-        disabled={saving || !text.trim()}
-        onClick={analyze}
-      >
-        메시지 분석
-      </button>
       {!canWrite && !saving && (
         <p className="notice">
           연결 확인과 예약 정보 로딩이 끝나면 저장할 수 있습니다. 분석은 먼저 할
@@ -162,6 +161,13 @@ export default function KakaoParserPanel({
             <p role="alert" className="notice warning">
               예약 데이터가 변경되었습니다. 메시지를 다시 분석해 최신 내용을
               확인하세요.
+              <button
+                className="parse-btn"
+                disabled={saving}
+                onClick={() => analyze()}
+              >
+                최신 내용으로 다시 분석
+              </button>
             </p>
           )}
           {analysis.warnings.map((w) => (

@@ -1,36 +1,28 @@
 import { addDays, dateStr, toDate } from "./dateUtils.js";
 import { fields, fmtPhone, validateReservation } from "./reservationModel.js";
+import {
+  field,
+  LABELS,
+  dateValues,
+  siteValue,
+  nightsValue,
+  splitNotifications,
+  notificationHeading,
+  reservationNumberCount,
+} from "./reservationMessageFields.js";
 export { fmtPhone };
-const marker =
-  /(?:\[\s*땡큐캠핑\s*\]\s*예약\s*(?:확정|신청|취소|변경)\s*안내|신규\s*예약이\s*성사되었습니다[.。]?|예약\s*(?:취소|변경)\s*알림)/g;
-const field = (block, label) =>
-  block
-    .match(
-      new RegExp(
-        "(?:^|\\n)\\s*[-•]?\\s*(?:" + label + ")\\s*[:：]\\s*([^\\n]+)",
-      ),
-    )?.[1]
-    ?.trim() || "";
-const dateValue = (value) => {
-  const m = value.match(/(\d{4})[\/.-](\d{1,2})[\/.-](\d{1,2})/);
-  return m ? `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}` : "";
-};
-const siteValue = (value) => {
-  const m = value
-    .toUpperCase()
-    .match(/(?:^|[^A-Z])([A-C])\s*[-\/]?\s*0?(\d+)(?!\d)/);
-  return m ? m[1] + Number(m[2]) : "";
-};
 export function detectPlatform(text = "") {
-  const thanku = /\[\s*땡큐캠핑\s*\]/.test(text),
-    camfit = /신규\s*예약이\s*성사|예약\s*(취소|변경)\s*알림/.test(text);
-  return thanku && camfit
-    ? "혼합"
-    : thanku
-      ? "땡큐캠핑"
-      : camfit
-        ? "캠핏"
-        : null;
+  const thanku = /땡큐\s*캠핑/i.test(text);
+  const camfit = /캠\s*핏|camfit/i.test(text);
+  if (thanku && camfit) return "혼합";
+  if (thanku) return "땡큐캠핑";
+  if (
+    camfit ||
+    /신규\s*예약이\s*성사|예약\s*(취소|변경)\s*알림/.test(text) ||
+    (field(text, "고객정보") && field(text, "캠핑존"))
+  )
+    return "캠핏";
+  return null;
 }
 export function parseReservationMessages(
   input,
@@ -39,34 +31,50 @@ export function parseReservationMessages(
   const text = String(input || "")
     .replace(/\r\n?/g, "\n")
     .replace(/\u00a0/g, " ");
-  const starts = [...text.matchAll(marker)];
+  const blocks = splitNotifications(text);
   const diagnostics = [],
     newMap = new Map(),
     cancelMap = new Map(),
     conflictKeys = new Set(),
     warnings = [];
   const cutoff = dateStr(addDays(today, -30));
-  for (let i = 0; i < starts.length; i++) {
-    const raw = text
-      .slice(starts[i].index, starts[i + 1]?.index ?? text.length)
-      .trim();
-    const platform = raw.startsWith("[") ? "땡큐캠핑" : "캠핏";
-    const cancel = /예약\s*취소/.test(starts[i][0]);
-    const customer = field(raw, "고객정보").match(
-      /^(.*?)\s*\/\s*([+\d][\d()\s-]*)$/,
-    );
-    const dateLine = field(raw, "입실일자|예약일자");
-    const siteLine = field(raw, "캠핑존|사이트명");
+  for (let i = 0; i < blocks.length; i++) {
+    const raw = blocks[i],
+      heading = notificationHeading(raw);
+    const detected = detectPlatform(raw);
+    const platform = detected === "혼합" ? "" : detected || "";
+    const state = field(raw, LABELS.status).replace(/\s/g, "");
+    const cancel =
+      /예약\s*(?:이|이\s*)?취소|취소.{0,5}예약/.test(heading) ||
+      /^취소(?:됨|완료)?$/.test(state);
+    const customerLine = field(raw, LABELS.customer);
+    const customer = customerLine.match(/^(.*?)\s*\/\s*([+\d][\d()\s-]*)$/);
+    const dateLine = field(raw, LABELS.checkin);
+    const siteLine = field(raw, LABELS.site);
     const r = fields({
-      reservationId: field(raw, "예약번호").split(/\s/)[0],
-      name: platform === "캠핏" ? customer?.[1] : field(raw, "예약자명"),
-      phone: platform === "캠핏" ? customer?.[2] : field(raw, "전화번호"),
+      reservationId: field(raw, LABELS.id).split(/\s/)[0],
+      name:
+        field(raw, LABELS.name) ||
+        customer?.[1] ||
+        (!customerLine.includes("/") ? customerLine : ""),
+      phone: field(raw, LABELS.phone) || customer?.[2],
       site: siteValue(siteLine),
-      checkin: dateValue(dateLine),
-      nights: Number((dateLine + " " + siteLine).match(/(\d+)\s*박/)?.[1] || 0),
+      checkin: dateValues(dateLine)[0] || "",
+      nights: nightsValue(
+        dateLine,
+        siteLine,
+        field(raw, LABELS.nights),
+        field(raw, LABELS.checkout),
+      ),
       platform,
       status: "active",
     });
+    const multipleReservations = reservationNumberCount(raw) > 1;
+    const action = heading + "\n" + state;
+    const uncertainCancellation =
+      /취소.{0,8}(?:요청|신청|예정|대기|불가|실패|규정|정책|수수료|방법)|취소되지/.test(
+        action,
+      );
     const errors = cancel
       ? !r.reservationId && !(r.name && r.phone && dateStr(toDate(r.checkin)))
         ? ["예약번호 또는 이름·전화번호·입실일이 필요합니다."]
@@ -75,6 +83,15 @@ export function parseReservationMessages(
           ...(!r.reservationId ? ["예약번호를 확인하세요."] : []),
           ...validateReservation(r),
         ];
+    if (!platform) errors.push("예약 플랫폼을 확인하세요.");
+    if (multipleReservations)
+      errors.push(
+        "한 알림에 예약번호가 여러 개입니다. 메시지를 나눠서 확인하세요.",
+      );
+    if (uncertainCancellation)
+      errors.push(
+        "취소 요청·실패·대기 알림은 자동 취소하지 않습니다. 원문을 확인하세요.",
+      );
     const diagnostic = {
       id: i,
       raw,
@@ -84,6 +101,7 @@ export function parseReservationMessages(
       errors,
     };
     diagnostics.push(diagnostic);
+    if (multipleReservations || uncertainCancellation) continue;
     if (
       !cancel &&
       !includePast &&
@@ -115,7 +133,7 @@ export function parseReservationMessages(
         ];
       }
     } else newMap.set(key, r);
-    if (/예약\s*신청/.test(starts[i][0]))
+    if (/예약\s*신청/.test(heading))
       warnings.push(
         "예약 신청 알림이 있습니다. 확정 여부를 확인한 뒤 선택해 주세요.",
       );
@@ -137,7 +155,7 @@ export function parseReservationMessages(
     }
     newMap.delete(key);
   }
-  if (text.trim() && !starts.length)
+  if (text.trim() && !blocks.length)
     warnings.push(
       "예약 알림을 찾지 못했습니다. 인식하지 못한 원문을 확인하세요.",
     );
@@ -146,7 +164,7 @@ export function parseReservationMessages(
       "인식하지 못한 항목이 있습니다. 내용을 수정한 뒤 저장하세요.",
     );
   const stats = {
-    found: starts.length,
+    found: blocks.length,
     ready: diagnostics.filter((d) => d.status === "ready").length,
     invalid: diagnostics.filter((d) => d.status === "invalid").length,
     excluded: diagnostics.filter((d) => d.status === "excluded").length,
@@ -154,7 +172,14 @@ export function parseReservationMessages(
     repeated: diagnostics.filter((d) => d.status === "repeated").length,
   };
   return {
-    platform: detectPlatform(text),
+    platform: (() => {
+      const platforms = [
+        ...new Set(diagnostics.map((d) => d.platform).filter(Boolean)),
+      ];
+      return platforms.length > 1
+        ? "혼합"
+        : platforms[0] || detectPlatform(text);
+    })(),
     newItems: [...newMap.values()],
     cancelList: [...cancelMap.values()],
     warnings: [...new Set(warnings)],

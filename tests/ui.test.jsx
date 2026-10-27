@@ -21,34 +21,50 @@ const panel = (props = {}) => (
     {...props}
   />
 );
-const analyze = () => {
+const pasteMessage = () => {
   fireEvent.change(screen.getByLabelText("예약 메시지 원문"), {
     target: { value: camfit() },
   });
-  fireEvent.click(screen.getByRole("button", { name: "메시지 분석" }));
 };
 describe("import review screen", () => {
-  it("invalidates the old preview immediately when the source changes", () => {
-    render(panel());
-    analyze();
+  it("analyses pasted text automatically and saves only the latest input", async () => {
+    const commit = vi.fn().mockResolvedValue({});
+    render(panel({ onCommit: commit }));
+    pasteMessage();
+    expect(screen.queryByRole("button", { name: "메시지 분석" })).toBeNull();
     expect(
       screen.getByRole("button", { name: "선택한 1건 저장" }).disabled,
     ).toBe(false);
     fireEvent.change(screen.getByLabelText("예약 메시지 원문"), {
       target: { value: camfit("NEW") },
     });
-    expect(screen.queryByRole("button", { name: /건 저장/ })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "선택한 1건 저장" }));
+    });
+    expect(commit.mock.calls[0][0][0].data.reservationId).toBe("NEW");
+  });
+  it("removes saveable old candidates immediately when the text becomes incomplete", () => {
+    const commit = vi.fn();
+    render(panel({ onCommit: commit }));
+    pasteMessage();
+    fireEvent.change(screen.getByLabelText("예약 메시지 원문"), {
+      target: { value: "수정 중" },
+    });
+    expect(
+      screen.getByRole("button", { name: "선택한 0건 저장" }).disabled,
+    ).toBe(true);
+    expect(commit).not.toHaveBeenCalled();
   });
   it("allows analysis but blocks saving while data is loading", () => {
     render(panel({ canWrite: false }));
-    analyze();
+    pasteMessage();
     expect(
       screen.getByRole("button", { name: "선택한 1건 저장" }).disabled,
     ).toBe(true);
   });
   it("requires reanalysis if live reservation data changes", () => {
     const view = render(panel());
-    analyze();
+    pasteMessage();
     view.rerender(panel({ rawReservations: { other: r() } }));
     expect(screen.getByRole("alert").textContent).toContain("변경되었습니다");
     expect(
@@ -58,7 +74,7 @@ describe("import review screen", () => {
   it("preserves source and candidates after a failed save", async () => {
     const commit = vi.fn().mockRejectedValue(new Error("연결 실패"));
     render(panel({ onCommit: commit }));
-    analyze();
+    pasteMessage();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "선택한 1건 저장" }));
     });
@@ -77,7 +93,7 @@ describe("import review screen", () => {
         }),
     );
     render(panel({ onCommit: commit }));
-    analyze();
+    pasteMessage();
     const save = screen.getByRole("button", { name: "선택한 1건 저장" });
     fireEvent.click(save);
     fireEvent.click(save);
