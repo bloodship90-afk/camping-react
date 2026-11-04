@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import AnalyticsPage from "./components/AnalyticsPage.jsx";
 import Layout from "./components/Layout.jsx";
 import ReservationBoard from "./components/ReservationBoard.jsx";
 import ReservationList from "./components/ReservationList.jsx";
@@ -231,6 +232,7 @@ export function CampingApp({ store }) {
           ["chart", "예약 현황"],
           ["list", "예약 목록"],
           ["parse", "카톡 가져오기"],
+          ["analytics", "운영 통계"],
         ].map(([key, label]) => (
           <button
             key={key}
@@ -288,6 +290,16 @@ export function CampingApp({ store }) {
           saving={store.saving}
           onCommit={store.commit}
         />
+      </section>
+      <section hidden={tab !== "analytics"} aria-label="운영 통계">
+        {tab === "analytics" &&
+          (store.loaded ? (
+            <AnalyticsPage rawReservations={store.reservations} today={today} />
+          ) : (
+            <p className="empty-state">
+              예약 정보를 불러온 뒤 통계를 표시합니다.
+            </p>
+          ))}
       </section>
       {modal && (
         <ReservationModal

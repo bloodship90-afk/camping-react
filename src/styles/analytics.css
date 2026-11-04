@@ -1,0 +1,214 @@
+.analytics-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 0 36px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.analytics-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 8px 0 22px;
+}
+.analytics-heading h2 {
+  font-size: 26px;
+  letter-spacing: -1px;
+}
+.analytics-heading p,
+.analytics-caption {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 8px 0;
+}
+.analytics-eyebrow {
+  color: var(--accent) !important;
+  letter-spacing: 2px;
+  font-size: 10px !important;
+}
+.analytics-badge {
+  border: 1px solid var(--border);
+  padding: 4px 9px;
+  border-radius: 20px;
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.analytics-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.analytics-filters label,
+.analytics-search {
+  display: grid;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.analytics-page input:not([type="checkbox"]),
+.analytics-page select {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 9px;
+  min-height: 44px;
+  font: inherit;
+  max-width: 100%;
+}
+.analytics-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+.analytics-kpi {
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.analytics-kpi span {
+  color: var(--text-muted);
+  font-size: 12px;
+  display: block;
+}
+.analytics-kpi strong {
+  font-size: 22px;
+  display: block;
+  margin-top: 8px;
+}
+.analytics-panel {
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  min-width: 0;
+}
+.analytics-panel h3 {
+  font-size: 16px;
+  margin-bottom: 14px;
+}
+.analytics-table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.analytics-page table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.analytics-page th {
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.analytics-page td,
+.analytics-page th {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.analytics-page td {
+  white-space: nowrap;
+}
+.analytics-page button {
+  color: var(--accent);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.analytics-page small {
+  display: block;
+  color: var(--text-muted);
+}
+.analytics-method {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 12px;
+  margin: 14px 0;
+  font-size: 12px;
+}
+.analytics-method p {
+  margin: 10px 0;
+}
+.analytics-method summary {
+  cursor: pointer;
+  color: var(--accent);
+  min-height: 28px;
+}
+.analytics-exclusions {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.analytics-exclusions label {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  align-items: center;
+}
+.analytics-meter {
+  display: block;
+  position: relative;
+  min-width: 90px;
+  padding: 3px 8px;
+  background: var(--surface2);
+  border-radius: 4px;
+  overflow: hidden;
+  isolation: isolate;
+}
+.analytics-meter > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: #00d4aa40;
+  z-index: -1;
+}
+.analytics-detail {
+  border-left: 3px solid var(--accent);
+  padding: 14px;
+  margin-top: 14px;
+}
+.analytics-search {
+  max-width: 350px;
+}
+@media (max-width: 640px) {
+  .analytics-heading {
+    flex-direction: column;
+  }
+  .analytics-heading h2 {
+    font-size: 22px;
+  }
+  .analytics-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .analytics-kpi {
+    padding: 12px;
+  }
+  .analytics-kpi strong {
+    font-size: 17px;
+  }
+  .analytics-panel {
+    padding: 12px;
+  }
+  .analytics-filters label {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+  .tab-nav {
+    gap: 4px;
+  }
+  .tab-nav .tab-btn {
+    min-width: 0;
+  }
+}
