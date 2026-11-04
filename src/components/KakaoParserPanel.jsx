@@ -1,138 +1,166 @@
 import { useRef, useState } from "react";
-import { parseReservationMessages } from "../utils/kakaoParsers.js";
-import { classifyImport, buildImportOperations } from "../utils/importPlan.js";
+import { intakeMessages, reviewQueue } from "../utils/importQueue.js";
+import { buildImportOperations } from "../utils/importPlan.js";
 import { fingerprint } from "../utils/reservationModel.js";
-import { findCancelKeys, conflictsFor } from "../utils/reservationUtils.js";
 import ReservationFields from "./ReservationFields.jsx";
+
 export default function KakaoParserPanel({
-  reservations,
   rawReservations,
   canWrite,
   saving,
   onCommit,
 }) {
-  const [text, setText] = useState(""),
-    [includePast, setIncludePast] = useState(false),
-    [analysis, setAnalysis] = useState(null);
-  const [rows, setRows] = useState([]),
-    [cancels, setCancels] = useState([]),
-    [allowOverlap, setAllowOverlap] = useState(false);
-  const [error, setError] = useState(""),
-    [message, setMessage] = useState("");
-  const mutex = useRef(false);
-  const stale = !!analysis && analysis.version !== fingerprint(rawReservations);
-  const invalidSelected =
-    rows.some(
-      (row) =>
-        row.selected &&
-        (classifyImport(rawReservations, row.item).errors.length ||
-          !["add", "update"].includes(
-            classifyImport(rawReservations, row.item).type,
-          )),
-    ) || cancels.some((c) => c.selected && !c.key);
-  const selectedCount =
-    rows.filter((r) => r.selected).length +
-    cancels.filter((c) => c.selected).length;
-  function invalidate() {
-    setAnalysis(null);
-    setRows([]);
-    setCancels([]);
-    setMessage("");
-    setError("");
+  const [text, setText] = useState("");
+  const [queue, setQueue] = useState([]);
+  const [includePast, setIncludePast] = useState(false);
+  const [version, setVersion] = useState(null);
+  const [allowOverlap, setAllowOverlap] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const input = useRef(null),
+    mutex = useRef(false),
+    sequence = useRef(0);
+  const locked = saving || busy;
+  const stale = queue.length > 0 && version !== fingerprint(rawReservations);
+  const reviews = reviewQueue(queue, rawReservations);
+  const actionable = reviews.filter((r) =>
+    ["add", "update", "cancel"].includes(r.type),
+  );
+  const counts = Object.fromEntries(
+    ["add", "update", "cancel"].map((type) => [
+      type,
+      actionable.filter((r) => r.type === type).length,
+    ]),
+  );
+  const blocked = reviews.some(
+    (r) =>
+      r.errors.length ||
+      r.type === "blocked" ||
+      (r.type === "update" && !r.card.confirmed),
+  );
+  const overlap = reviews.some((r) => r.overlap);
+  function change(id, patch) {
+    setQueue((all) =>
+      all.map((card) => (card.id === id ? { ...card, ...patch } : card)),
+    );
     setAllowOverlap(false);
+    setError("");
   }
-  function analyze(source = text, includeOlder = includePast) {
-    const parsed = parseReservationMessages(source, {
-      includePast: includeOlder,
-    });
-    setAnalysis({ ...parsed, version: fingerprint(rawReservations) });
-    setMessage("");
-    setError("");
+  function append(source) {
+    if (mutex.current || locked || !source.trim()) return;
+    const added = intakeMessages(source, includePast);
+    const signatures = new Set(queue.map((card) => card.signature));
+    const fresh = added
+      .filter((card) => {
+        if (signatures.has(card.signature)) return false;
+        signatures.add(card.signature);
+        return true;
+      })
+      .map((card) => ({ ...card, id: ++sequence.current }));
+    if (!queue.length) setVersion(fingerprint(rawReservations));
+    setQueue((all) => [...all, ...fresh]);
+    setText("");
     setAllowOverlap(false);
-    setRows(
-      parsed.newItems.map((item) => {
-        const c = classifyImport(rawReservations, item);
-        return { item, selected: c.type === "add" && !c.errors.length };
-      }),
+    setError("");
+    setMessage(
+      `${fresh.length}건을 대기 목록에 추가했습니다.${fresh.length < added.length ? " 반복된 원문은 제외했습니다." : ""}`,
     );
-    setCancels(
-      parsed.cancelList.map((item) => {
-        const match = findCancelKeys(rawReservations, item);
-        const automatic = match.keys.length === 1 && !match.isFallback;
-        return {
-          item,
-          selected: automatic,
-          key: automatic ? match.keys[0] : "",
-          ...match,
-        };
-      }),
-    );
+    input.current?.focus({ preventScroll: true });
   }
   async function save() {
-    if (mutex.current || !analysis || stale || saving) return;
-    setError("");
-    if (!canWrite) {
-      setError("예약 정보를 불러오고 연결이 확인된 뒤 저장하세요.");
+    if (
+      mutex.current ||
+      locked ||
+      stale ||
+      blocked ||
+      !canWrite ||
+      !actionable.length ||
+      (overlap && !allowOverlap)
+    )
       return;
-    }
     mutex.current = true;
+    setBusy(true);
+    setError("");
     try {
+      const rows = actionable
+        .filter((r) => r.type !== "cancel")
+        .map((r) => ({ item: r.card.item, selected: true }));
+      const cancels = actionable
+        .filter((r) => r.type === "cancel")
+        .map((r) => ({ item: r.card.item, key: r.key, selected: true }));
       const ops = buildImportOperations(
         rawReservations,
         rows,
         cancels,
         allowOverlap,
       );
-      if (!ops.length) throw new Error("처리할 예약을 선택하세요.");
       await onCommit(ops);
-      setAnalysis(null);
-      setRows([]);
-      setCancels([]);
+      setQueue([]);
+      setVersion(null);
+      setAllowOverlap(false);
       setMessage(
-        `선택한 ${ops.length}건을 저장했습니다. 원문은 확인을 위해 남겨 두었습니다.`,
+        `총 ${ops.length}건 저장 완료 · 신규 ${counts.add}건 / 변경 ${counts.update}건 / 취소 ${counts.cancel}건`,
       );
+      input.current?.focus({ preventScroll: true });
     } catch (e) {
       setError(e.message);
     } finally {
       mutex.current = false;
+      setBusy(false);
     }
   }
   return (
     <div className="parse-wrap">
       <h2>카톡 예약 가져오기</h2>
-      <p>
-        캠핏·땡큐캠핑 알림을 붙여 넣으면 바로 분석합니다. 신규·변경·취소 내용을
-        확인한 뒤 선택한 항목만 저장합니다.
-      </p>
+      <p>알림을 붙여넣을 때마다 아래에 쌓입니다. 확인하고 전체 저장하세요.</p>
       <label htmlFor="kakao-input">예약 메시지 원문</label>
       <textarea
         id="kakao-input"
+        ref={input}
         className="parse-textarea"
         value={text}
-        disabled={saving}
-        onChange={(e) => {
-          const next = e.target.value;
-          setText(next);
-          invalidate();
-          if (next.trim()) analyze(next);
+        disabled={locked}
+        onPaste={(e) => {
+          const source = e.clipboardData.getData("text");
+          if (source.trim()) {
+            e.preventDefault();
+            append(source);
+          }
         }}
-        placeholder="카카오톡 예약 알림을 붙여 넣으세요"
+        onChange={(e) => setText(e.target.value)}
+        placeholder="여기에 예약 알림을 계속 붙여넣으세요"
       />
+      {text.trim() && (
+        <button
+          className="parse-btn"
+          disabled={locked}
+          onClick={() => append(text)}
+        >
+          입력 내용 분석·추가
+        </button>
+      )}
       <label className="check-label">
         <input
           type="checkbox"
           checked={includePast}
-          disabled={saving}
+          disabled={locked}
           onChange={(e) => {
-            const next = e.target.checked;
-            setIncludePast(next);
-            invalidate();
-            if (text.trim()) analyze(text, next);
+            const enabled = e.target.checked;
+            setIncludePast(enabled);
+            if (enabled)
+              setQueue((all) =>
+                all.map((card) =>
+                  card.excluded
+                    ? { ...intakeMessages(card.raw, true)[0], id: card.id }
+                    : card,
+                ),
+              );
           }}
         />
-        30일 이전 입실 알림도 포함
+        30일 이전 입실 알림도 포함 (다음 입력에 적용)
       </label>
-      {!canWrite && !saving && (
+      {!canWrite && (
         <p className="notice">
           연결 확인과 예약 정보 로딩이 끝나면 저장할 수 있습니다. 분석은 먼저 할
           수 있습니다.
@@ -148,209 +176,191 @@ export default function KakaoParserPanel({
           {error}
         </p>
       )}
-      {analysis && (
-        <div className="import-result">
-          <h3>분석 결과 · 알림 {analysis.stats.found}건</h3>
-          <p className="muted">
-            정상 인식 {analysis.stats.ready} · 확인 필요{" "}
-            {analysis.stats.invalid} · 날짜 제외 {analysis.stats.excluded} ·
-            충돌 {analysis.stats.conflicts} · 반복 알림{" "}
-            {analysis.stats.repeated}
-          </p>
+      {queue.length > 0 && (
+        <section className="import-result" aria-label="예약 대기 목록">
+          <h3>분석 결과 · 대기 {queue.length}건</h3>
           {stale && (
             <p role="alert" className="notice warning">
-              예약 데이터가 변경되었습니다. 메시지를 다시 분석해 최신 내용을
-              확인하세요.
+              예약 데이터가 변경되었습니다. 최신 내용으로 다시 확인하세요.
               <button
                 className="parse-btn"
-                disabled={saving}
-                onClick={() => analyze()}
+                disabled={locked}
+                onClick={() => {
+                  setVersion(fingerprint(rawReservations));
+                  setQueue((all) =>
+                    all.map((card) => ({
+                      ...card,
+                      confirmed: false,
+                      target: undefined,
+                    })),
+                  );
+                  setAllowOverlap(false);
+                }}
               >
-                최신 내용으로 다시 분석
+                최신 내용으로 다시 확인
               </button>
             </p>
           )}
-          {analysis.warnings.map((w) => (
-            <p key={w} className="notice warning">
-              {w}
-            </p>
-          ))}
-          {rows.map((row, i) => {
-            const c = classifyImport(rawReservations, row.item),
-              blocked = ["blocked", "duplicate"].includes(c.type);
-            const conflicts = conflictsFor(reservations, row.item, c.key);
-            return (
-              <article className="import-card" key={i}>
-                <label className="check-label">
-                  <input
-                    type="checkbox"
-                    checked={row.selected}
-                    disabled={saving || blocked || stale}
-                    onChange={(e) =>
-                      setRows((all) =>
-                        all.map((r, j) =>
-                          j === i ? { ...r, selected: e.target.checked } : r,
-                        ),
-                      )
-                    }
-                  />
-                  <strong>
-                    {row.item.platform} #{row.item.reservationId || "번호 확인"}{" "}
-                    · {c.reason}
-                  </strong>
-                </label>
-                <p>
-                  {row.item.name || "이름 확인"} ·{" "}
-                  {row.item.site || "사이트 확인"} ·{" "}
-                  {row.item.checkin || "날짜 확인"} · {row.item.nights}박 ·{" "}
-                  {row.item.phone}
-                </p>
-                {c.type === "update" && (
-                  <p className="notice">
-                    기존: {c.old.name} · {c.old.site} · {c.old.checkin} ·{" "}
-                    {c.old.nights}박 · {c.old.phone}
-                  </p>
-                )}
-                {c.errors.length > 0 && (
-                  <p className="notice warning">{c.errors.join(" ")}</p>
-                )}
-                {conflicts.length > 0 && (
-                  <p className="notice warning">
-                    겹치는 예약:{" "}
-                    {conflicts
-                      .map(([, r]) => r.name + " " + r.checkin)
-                      .join(", ")}
-                  </p>
-                )}
-                <details>
-                  <summary>인식한 내용 수정</summary>
-                  <ReservationFields
-                    value={row.item}
-                    disabled={saving || stale}
-                    lockIdentity={c.type === "update"}
-                    onChange={(item) => {
-                      const next = classifyImport(rawReservations, item);
-                      setRows((all) =>
-                        all.map((r, j) =>
-                          j === i
-                            ? {
-                                ...r,
-                                item,
-                                selected:
-                                  r.selected &&
-                                  ["add", "update"].includes(next.type),
-                              }
-                            : r,
-                        ),
-                      );
-                      setAllowOverlap(false);
-                    }}
-                  />
-                </details>
-              </article>
-            );
-          })}
-          {cancels.map((c, i) => (
-            <article className="import-card" key={"cancel-" + i}>
-              <label className="check-label">
-                <input
-                  type="checkbox"
-                  checked={c.selected}
-                  disabled={saving || stale || !c.key}
-                  onChange={(e) =>
-                    setCancels((all) =>
-                      all.map((r, j) =>
-                        j === i ? { ...r, selected: e.target.checked } : r,
-                      ),
-                    )
-                  }
-                />
+          {reviews.map((r) => (
+            <article
+              className="import-card"
+              key={r.card.id}
+              aria-label={`대기 예약 ${r.card.item?.reservationId || r.card.id}`}
+            >
+              <div className="import-card-heading">
                 <strong>
-                  취소 · {c.item.platform} #
-                  {c.item.reservationId || "번호 없음"}
+                  {r.card.kind === "cancel"
+                    ? "취소"
+                    : r.type === "update"
+                      ? "변경"
+                      : "예약"}{" "}
+                  · {r.card.item?.platform} #
+                  {r.card.item?.reservationId || "번호 확인"}
                 </strong>
-              </label>
-              <p>
-                {c.item.name} · {c.item.checkin} · {c.item.phone}
+                <button
+                  type="button"
+                  className="import-remove"
+                  disabled={locked}
+                  aria-label={`대기 항목 삭제 ${r.card.id}`}
+                  onClick={() => {
+                    setQueue((all) =>
+                      all.filter((card) => card.id !== r.card.id),
+                    );
+                    setAllowOverlap(false);
+                    setError("");
+                  }}
+                >
+                  삭제
+                </button>
+              </div>
+              <p className="import-state">
+                {r.label}
+                {r.overlap ? " · 기간 겹침" : ""}
               </p>
-              {c.keys.length ? (
+              {r.card.item && (
+                <p>
+                  {r.card.item.name || "이름 확인"} ·{" "}
+                  {r.card.item.site || "사이트 미상"} ·{" "}
+                  {r.card.item.checkin || "입실일 미상"} ·{" "}
+                  {r.card.item.nights || "?"}박 · {r.card.item.phone}
+                </p>
+              )}
+              {r.errors.map((error, i) => (
+                <p key={i} className="notice warning">
+                  {error}
+                </p>
+              ))}
+              {r.card.warnings?.map((w) => (
+                <p key={w} className="notice warning">
+                  {w}
+                </p>
+              ))}
+              {r.overlap && (
+                <p className="notice warning">
+                  기존 예약 또는 대기 예약과 같은 사이트의 숙박 기간이 겹칩니다.
+                </p>
+              )}
+              {r.type === "update" && (
+                <>
+                  <p className="notice">
+                    기존: {r.old.name} · {r.old.site} · {r.old.checkin} ·{" "}
+                    {r.old.nights}박 · {r.old.phone}
+                  </p>
+                  <label className="check-label">
+                    <input
+                      type="checkbox"
+                      checked={r.card.confirmed}
+                      disabled={locked || stale}
+                      onChange={(e) =>
+                        change(r.card.id, { confirmed: e.target.checked })
+                      }
+                    />
+                    기존 예약 변경 내용을 확인했습니다
+                  </label>
+                </>
+              )}
+              {r.card.kind === "cancel" && r.match.keys.length > 0 && (
                 <label>
                   취소할 예약 선택{" "}
-                  {c.isFallback && "· 보조 매칭, 직접 확인 필요"}
+                  {r.match.isFallback && "· 보조 매칭, 직접 확인 필요"}
                   <select
-                    aria-label={`취소 대상 ${c.item.reservationId}`}
-                    disabled={saving || stale}
-                    value={c.key}
+                    aria-label={`취소 대상 ${r.card.id}`}
+                    value={r.key}
+                    disabled={locked || stale}
                     onChange={(e) =>
-                      setCancels((all) =>
-                        all.map((r, j) =>
-                          j === i
-                            ? {
-                                ...r,
-                                key: e.target.value,
-                                selected: !!e.target.value,
-                              }
-                            : r,
-                        ),
-                      )
+                      change(r.card.id, { target: e.target.value })
                     }
                   >
                     <option value="">처리하지 않음 / 대상 선택</option>
-                    {c.keys.map((key) => (
+                    {r.match.keys.map((key) => (
                       <option key={key} value={key}>
-                        {reservations[key]?.name} · {reservations[key]?.site} ·{" "}
-                        {reservations[key]?.checkin} · #
-                        {reservations[key]?.reservationId || "직접예약"}
+                        {rawReservations[key]?.name} ·{" "}
+                        {rawReservations[key]?.site} ·{" "}
+                        {rawReservations[key]?.checkin} · #
+                        {rawReservations[key]?.reservationId}
                       </option>
                     ))}
                   </select>
                 </label>
-              ) : (
-                <p className="notice warning">
-                  활성 예약 중 취소 대상을 찾지 못했습니다. 취소 목록과 원문을
-                  확인하세요.
-                </p>
               )}
+              {r.card.kind === "reservation" && (
+                <details>
+                  <summary>인식한 내용 수정</summary>
+                  <ReservationFields
+                    value={r.card.item}
+                    disabled={locked || stale}
+                    lockIdentity={r.type === "update"}
+                    onChange={(item) =>
+                      change(r.card.id, { item, confirmed: false })
+                    }
+                  />
+                </details>
+              )}
+              <details>
+                <summary>원문 보기</summary>
+                <pre className="import-source">{r.card.raw}</pre>
+              </details>
             </article>
           ))}
-          <label className="check-label">
-            <input
-              type="checkbox"
-              checked={allowOverlap}
-              disabled={saving || stale}
-              onChange={(e) => setAllowOverlap(e.target.checked)}
-            />
-            겹치는 예약을 확인했으며 중복 예약도 함께 기록합니다
-          </label>
-          <button
-            className="parse-confirm-btn"
-            disabled={!canWrite || stale || invalidSelected || !selectedCount}
-            onClick={save}
-          >
-            {saving ? "서버 저장 확인 중…" : `선택한 ${selectedCount}건 저장`}
-          </button>
-          <details className="diagnostics">
-            <summary>인식 결과와 원문 전체 확인</summary>
-            {analysis.diagnostics.map((d) => (
-              <article key={d.id}>
-                <strong>
-                  {d.platform} ·{" "}
-                  {
-                    {
-                      ready: "정상 인식",
-                      invalid: "확인 필요",
-                      excluded: "날짜 제외",
-                      conflict: "내용 충돌",
-                      repeated: "반복 알림",
-                    }[d.status]
-                  }
-                </strong>
-                <p>{d.errors.join(" ")}</p>
-                <pre>{d.raw}</pre>
-              </article>
-            ))}
-          </details>
-        </div>
+          <div className="import-save-bar">
+            {overlap && (
+              <label className="check-label">
+                <input
+                  type="checkbox"
+                  checked={allowOverlap}
+                  disabled={locked || stale}
+                  onChange={(e) => setAllowOverlap(e.target.checked)}
+                />
+                겹치는 예약을 확인했으며 중복 예약도 함께 기록합니다
+              </label>
+            )}
+            {blocked && (
+              <p className="notice warning">
+                확인 필요 항목을 수정·확인하거나 삭제한 뒤 저장하세요.
+              </p>
+            )}
+            <button
+              className="parse-confirm-btn"
+              disabled={
+                locked ||
+                !canWrite ||
+                stale ||
+                blocked ||
+                !actionable.length ||
+                (overlap && !allowOverlap)
+              }
+              onClick={save}
+            >
+              {locked
+                ? "서버 저장 확인 중…"
+                : `전체 저장 · 신규 ${counts.add}건 / 변경 ${counts.update}건 / 취소 ${counts.cancel}건`}
+            </button>
+            <p className="muted">
+              이미 등록된 항목은 저장에서 제외합니다. 삭제는 대기 목록에만
+              적용됩니다.
+            </p>
+          </div>
+        </section>
       )}
     </div>
   );

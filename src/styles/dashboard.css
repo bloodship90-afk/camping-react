@@ -343,3 +343,77 @@ body {
     font-size: 11px;
   }
 }
+
+/* Compact import queue, including narrow mobile screens. */
+.parse-wrap .parse-textarea {
+  min-height: 90px;
+  height: 100px;
+  font-size: 16px;
+}
+.import-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.import-card-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.import-remove {
+  flex-shrink: 0;
+  min-width: 48px;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+}
+.import-state {
+  font-weight: 600;
+}
+.import-source {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.import-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.import-card select {
+  max-width: 100%;
+  min-height: 44px;
+}
+.import-card summary {
+  padding: 10px 0;
+  cursor: pointer;
+}
+.import-save-bar {
+  background: var(--surface);
+  padding: 12px 0;
+}
+.import-save-bar .parse-confirm-btn {
+  width: 100%;
+  min-height: 48px;
+  white-space: normal;
+}
+
+.parse-wrap .import-card {
+  padding: 12px;
+  margin: 8px 0;
+}
+.parse-wrap .import-card p {
+  margin: 6px 0;
+  line-height: 1.5;
+}
+.parse-wrap .import-card summary {
+  padding: 7px 0;
+  font-size: 13px;
+}
+.parse-wrap .import-card .import-state {
+  font-size: 12px;
+}
